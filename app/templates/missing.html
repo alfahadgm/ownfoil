@@ -441,9 +441,22 @@
         $('#jackettConfigModal').modal('hide');
     }
     
+    function cleanGameName(gameName) {
+        // Remove special characters and symbols that interfere with searches
+        return gameName
+            .replace(/™/g, '')      // Remove trademark symbol
+            .replace(/®/g, '')      // Remove registered symbol
+            .replace(/©/g, '')      // Remove copyright symbol
+            .replace(/[:]/g, '')    // Remove colons
+            .replace(/['']/g, "'")  // Normalize apostrophes
+            .replace(/[""]/g, '"')  // Normalize quotes
+            .replace(/\s+/g, ' ')   // Normalize multiple spaces
+            .trim();                // Remove leading/trailing spaces
+    }
+    
     function buildSearchQuery(gameName, type, titleId, version) {
-        // Use simplified queries for better search results
-        let query = gameName;
+        // Clean the game name first
+        let query = cleanGameName(gameName);
         
         if (type === 'base') {
             // Just search for the game name
@@ -457,13 +470,14 @@
     }
     
     function buildDLCSearchQuery(gameName, dlcList) {
-        // Simple search: game name + DLC
-        return `${gameName} DLC`;
+        // Clean the game name and do simple search
+        let query = cleanGameName(gameName);
+        return `${query} DLC`;
     }
     
     function buildAdvancedSearchQuery(gameName, type, titleId, version) {
-        // Keep the old complex query for advanced/manual searches
-        let query = gameName;
+        // Keep the old complex query for advanced/manual searches but clean the name
+        let query = cleanGameName(gameName);
         
         if (type === 'base') {
             query += ` (NSP OR NSZ OR XCI OR XCZ)`;
@@ -485,8 +499,9 @@
     }
     
     function buildAdvancedDLCSearchQuery(gameName, dlcList) {
+        let query = cleanGameName(gameName);
         let dlcNames = dlcList.map(d => `"${d.name}"`).join(' OR ');
-        return `${gameName} DLC (${dlcNames}) (NSP OR NSZ)`;
+        return `${query} DLC (${dlcNames}) (NSP OR NSZ)`;
     }
     
     function searchInJackett(gameName, type, titleId, version) {

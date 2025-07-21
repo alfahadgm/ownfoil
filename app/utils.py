@@ -33,6 +33,15 @@ class FilterRemoveDateFromWerkzeugLogs(logging.Filter):
         return True
 
 
+def format_bytes(size):
+    """Convert bytes to human readable format"""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB', 'PB']:
+        if size < 1024.0:
+            return f"{size:.2f} {unit}"
+        size /= 1024.0
+    return f"{size:.2f} EB"
+
+
 def debounce(wait):
     """Decorator that postpones a function's execution until after `wait` seconds
     have elapsed since the last time it was invoked."""
