@@ -116,6 +116,24 @@
     </nav>
 </div>
 
+<!-- Title Details Modal -->
+<div class="modal fade" id="titleDetailsModal" tabindex="-1" aria-labelledby="titleDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="titleDetailsModalLabel">Title Details</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="titleDetailsContent">
+                <!-- Content will be loaded dynamically -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     let games;
     let filteredGames;
@@ -173,6 +191,16 @@
             const gameCol = $('<div class="col game-col"></div>').addClass(`col-${12 / getColumnsForCardSize(cardSize)}`);
 
             const card = $('<div class="card text-bg-dark game-card"></div>');
+            
+            // Add click handler to show details
+            card.css('cursor', 'pointer');
+            card.click(function(e) {
+                // Prevent click if clicking on version badge popover
+                if ($(e.target).closest('.version-tag').length > 0) {
+                    return;
+                }
+                showTitleDetails(game.title_id || game.app_id);
+            });
 
             const img = $('<img class="card-img"></img>').attr('src', game.bannerUrl);
             card.append(img);
@@ -527,6 +555,148 @@
     //     applyFilters();
     // });
 
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    function showTitleDetails(titleId) {
+        // Show loading state
+        $('#titleDetailsContent').html('<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>');
+        $('#titleDetailsModal').modal('show');
+        
+        // Fetch title details
+        $.get(`/api/titles/${titleId}`, function(data) {
+            let content = `
+                <div class="row">
+                    <div class="col-md-4">
+                        <img src="${data.title_info.bannerUrl}" class="img-fluid rounded" alt="${data.title_info.name}">
+                    </div>
+                    <div class="col-md-8">
+                        <h4>${data.title_info.name}</h4>
+                        <p class="text-muted">Title ID: ${data.title_id}</p>
+                        <p>Total Size: ${formatBytes(data.total_size)}</p>
+                    </div>
+                </div>
+                <hr>
+            `;
+            
+            // Base game section
+            if (data.files.base.length > 0) {
+                content += '<h5>Base Game</h5><ul class="list-group mb-3">';
+                data.files.base.forEach(file => {
+                    content += `
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${file.filename}</strong><br>
+                                <small class="text-muted">${file.filepath}</small>
+                            </div>
+                            <span class="badge bg-primary rounded-pill">${formatBytes(file.size)}</span>
+                        </li>
+                    `;
+                });
+                content += '</ul>';
+            }
+            
+            // Updates section
+            if (data.files.updates.length > 0 || (data.version_info.all_versions && data.version_info.all_versions.length > 0)) {
+                content += '<h5>Updates</h5>';
+                
+                if (!data.version_info.has_latest) {
+                    content += '<div class="alert alert-warning" role="alert">Missing latest update!</div>';
+                }
+                
+                content += '<ul class="list-group mb-3">';
+                
+                // Show owned updates
+                data.files.updates.forEach(file => {
+                    const versionInfo = data.version_info.all_versions?.find(v => v.version == file.version);
+                    content += `
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>Version ${file.version}</strong> ${versionInfo ? `(${versionInfo.release_date})` : ''}<br>
+                                <small class="text-muted">${file.filename}</small>
+                            </div>
+                            <div>
+                                <span class="badge bg-success rounded-pill me-2">Owned</span>
+                                <span class="badge bg-primary rounded-pill">${formatBytes(file.size)}</span>
+                            </div>
+                        </li>
+                    `;
+                });
+                
+                // Show missing updates
+                if (data.version_info.all_versions) {
+                    data.version_info.all_versions.forEach(version => {
+                        if (!data.version_info.owned_versions.includes(version.version)) {
+                            content += `
+                                <li class="list-group-item d-flex justify-content-between align-items-center text-muted">
+                                    <div>
+                                        <strong>Version ${version.version}</strong> (${version.release_date})
+                                    </div>
+                                    <span class="badge bg-warning rounded-pill">Missing</span>
+                                </li>
+                            `;
+                        }
+                    });
+                }
+                
+                content += '</ul>';
+            }
+            
+            // DLC section
+            if (data.files.dlc.length > 0 || data.dlc_info.all_dlcs.length > 0) {
+                content += '<h5>DLC</h5>';
+                
+                if (!data.dlc_info.has_all_dlcs) {
+                    content += '<div class="alert alert-warning" role="alert">Missing some DLC!</div>';
+                }
+                
+                content += '<ul class="list-group mb-3">';
+                
+                // Show owned DLC
+                data.files.dlc.forEach(file => {
+                    content += `
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>${file.name || file.filename}</strong><br>
+                                <small class="text-muted">${file.app_id}</small>
+                            </div>
+                            <div>
+                                <span class="badge bg-success rounded-pill me-2">Owned</span>
+                                <span class="badge bg-primary rounded-pill">${formatBytes(file.size)}</span>
+                            </div>
+                        </li>
+                    `;
+                });
+                
+                // Show missing DLC
+                data.dlc_info.all_dlcs.forEach(dlcId => {
+                    if (!data.dlc_info.owned_dlcs.includes(dlcId)) {
+                        content += `
+                            <li class="list-group-item d-flex justify-content-between align-items-center text-muted">
+                                <div>
+                                    <strong>DLC ${dlcId}</strong>
+                                </div>
+                                <span class="badge bg-warning rounded-pill">Missing</span>
+                            </li>
+                        `;
+                    }
+                });
+                
+                content += '</ul>';
+            }
+            
+            $('#titleDetailsContent').html(content);
+            $('#titleDetailsModalLabel').text(data.title_info.name);
+        }).fail(function() {
+            $('#titleDetailsContent').html('<div class="alert alert-danger" role="alert">Failed to load title details</div>');
+        });
+    }
 
 </script>
 {% endblock %}

@@ -341,6 +341,156 @@ def get_all_titles():
         'games': titles_library
     })
 
+@app.route('/api/titles/<title_id>', methods=['GET'])
+@access_required('shop')
+def get_title_details(title_id):
+    """Get detailed information about a specific title including all associated files"""
+    title_id = title_id.upper()
+    
+    # Get all files for this title (base, updates, DLCs)
+    all_files = get_all_title_files(title_id)
+    
+    if not all_files:
+        return jsonify({'error': 'Title not found'}), 404
+    
+    # Get title info from titledb
+    title_info = get_game_info(title_id)
+    
+    # Organize files by type
+    base_files = [f for f in all_files if f['type'] == APP_TYPE_BASE]
+    update_files = sorted([f for f in all_files if f['type'] == APP_TYPE_UPD], 
+                         key=lambda x: int(x['version']) if x['version'] else 0)
+    dlc_files = [f for f in all_files if f['type'] == APP_TYPE_DLC]
+    
+    # Get version information
+    all_versions = get_all_existing_versions(title_id)
+    owned_versions = [int(f['version']) for f in update_files if f['version']]
+    
+    # Get DLC information
+    all_dlcs = get_all_existing_dlc(title_id)
+    owned_dlcs = [f['app_id'] for f in dlc_files]
+    
+    # Build response
+    response = {
+        'title_id': title_id,
+        'title_info': title_info,
+        'files': {
+            'base': base_files,
+            'updates': update_files,
+            'dlc': dlc_files
+        },
+        'version_info': {
+            'all_versions': all_versions,
+            'owned_versions': owned_versions,
+            'latest_version': get_game_latest_version(all_versions) if all_versions else None,
+            'has_latest': owned_versions and all_versions and max(owned_versions) == get_game_latest_version(all_versions)
+        },
+        'dlc_info': {
+            'all_dlcs': all_dlcs,
+            'owned_dlcs': owned_dlcs,
+            'has_all_dlcs': all(dlc in owned_dlcs for dlc in all_dlcs)
+        },
+        'total_size': sum(f['size'] for f in all_files)
+    }
+    
+    return jsonify(response)
+
+
+@app.route('/api/library/organize/preview', methods=['POST'])
+@access_required('admin')
+def preview_library_organization_endpoint():
+    """Preview library organization changes without applying them"""
+    data = request.json
+    library_paths = data.get('library_paths', None)
+    organize_by_name = data.get('organize_by_name', True)
+    
+    from library import preview_library_organization
+    from titles import get_file_size
+    changes, errors = preview_library_organization(library_paths, organize_by_name)
+    
+    # Calculate total size that will be moved
+    total_size = sum(get_file_size(c['old_path']) for c in changes if os.path.exists(c['old_path']))
+    
+    return jsonify({
+        'changes': changes,
+        'errors': errors,
+        'total_files': len(changes),
+        'total_size': total_size
+    })
+
+
+@app.route('/api/library/organize/apply', methods=['POST'])
+@access_required('admin')
+def apply_library_organization_endpoint():
+    """Apply library organization changes"""
+    data = request.json
+    changes = data.get('changes', [])
+    dry_run = data.get('dry_run', False)
+    
+    if not changes:
+        return jsonify({'error': 'No changes provided'}), 400
+    
+    from library import apply_library_organization
+    results = apply_library_organization(changes, dry_run)
+    
+    # Regenerate library after organization
+    if not dry_run and results['success']:
+        global titles_library
+        titles_library = generate_library()
+    
+    return jsonify({
+        'results': results,
+        'total_success': len(results['success']),
+        'total_errors': len(results['errors'])
+    })
+
+
+@app.route('/api/library/duplicates', methods=['GET'])
+@access_required('admin')
+def find_duplicate_updates_endpoint():
+    """Find duplicate update files"""
+    title_id = request.args.get('title_id', None)
+    
+    from library import find_duplicate_updates
+    duplicates = find_duplicate_updates(title_id)
+    
+    # Calculate total size that can be freed
+    total_size = sum(d['size'] for d in duplicates)
+    
+    return jsonify({
+        'duplicates': duplicates,
+        'total_files': len(duplicates),
+        'total_size': total_size
+    })
+
+
+@app.route('/api/library/duplicates/delete', methods=['POST'])
+@access_required('admin')
+def delete_duplicate_updates_endpoint():
+    """Delete duplicate update files"""
+    data = request.json
+    duplicates = data.get('duplicates', [])
+    dry_run = data.get('dry_run', False)
+    
+    if not duplicates:
+        return jsonify({'error': 'No duplicates provided'}), 400
+    
+    from library import delete_duplicate_updates
+    results = delete_duplicate_updates(duplicates, dry_run)
+    
+    # Regenerate library after deletion
+    if not dry_run and results['deleted']:
+        global titles_library
+        titles_library = generate_library()
+    
+    return jsonify({
+        'results': results,
+        'total_deleted': len(results['deleted']),
+        'total_errors': len(results['errors']),
+        'space_freed': sum(d['size'] for d in results['deleted'])
+    })
+
+
 @app.route('/api/get_game/<int:id>')
 @tinfoil_access
 def serve_game(id):

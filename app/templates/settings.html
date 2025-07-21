@@ -166,6 +166,18 @@
                         <button type="button" class="btn btn-primary mb-3 scanBtn" onClick='scanLibrary()'>Scan
                             library</button>
                     </div>
+                    
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-warning mb-3" onClick='showOrganizeLibraryModal()'>
+                            <i class="bi bi-folder-fill"></i> Organize Library
+                        </button>
+                    </div>
+                    
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-danger mb-3" onClick='showCleanupDuplicatesModal()'>
+                            <i class="bi bi-trash-fill"></i> Clean Duplicates
+                        </button>
+                    </div>
                 </div>
 
                 <div class="collapse" id="collapseNewPath">
@@ -732,6 +744,252 @@
     $('#checkboxNewUserBackupAccess').prop('checked', true).attr("disabled", true);
     {% endif %}
     languages = {{ languages_from_titledb | tojson | safe }}
+    
+    // Library organization functions
+    function showOrganizeLibraryModal() {
+        $('#organizePreviewContent').html('<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>');
+        $('#organizeLibraryModal').modal('show');
+        
+        $.ajax({
+            url: '/api/library/organize/preview',
+            type: 'POST',
+            data: JSON.stringify({organize_by_name: true}),
+            contentType: "application/json",
+            success: function(result) {
+                let content = '';
+                
+                if (result.total_files === 0) {
+                    content = '<div class="alert alert-info">Your library is already organized!</div>';
+                } else {
+                    content = `
+                        <div class="alert alert-info">
+                            <strong>${result.total_files}</strong> files will be reorganized
+                            (${formatBytes(result.total_size)})
+                        </div>
+                        <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Current Path</th>
+                                        <th>New Path</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                    `;
+                    
+                    result.changes.forEach(change => {
+                        content += `
+                            <tr>
+                                <td class="text-break small">${change.old_path}</td>
+                                <td class="text-break small">${change.new_path}</td>
+                            </tr>
+                        `;
+                    });
+                    
+                    content += '</tbody></table></div>';
+                    
+                    if (result.errors.length > 0) {
+                        content += '<div class="alert alert-warning mt-3"><strong>Errors:</strong><ul>';
+                        result.errors.forEach(error => {
+                            content += `<li>${error.file}: ${error.error}</li>`;
+                        });
+                        content += '</ul></div>';
+                    }
+                }
+                
+                $('#organizePreviewContent').html(content);
+                
+                if (result.total_files > 0) {
+                    $('#confirmOrganizeBtn').show().data('changes', result.changes);
+                } else {
+                    $('#confirmOrganizeBtn').hide();
+                }
+            },
+            error: function() {
+                $('#organizePreviewContent').html('<div class="alert alert-danger">Failed to preview organization</div>');
+            }
+        });
+    }
+    
+    function confirmOrganizeLibrary() {
+        const changes = $('#confirmOrganizeBtn').data('changes');
+        $('#confirmOrganizeBtn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm" role="status"></span> Organizing...');
+        
+        $.ajax({
+            url: '/api/library/organize/apply',
+            type: 'POST',
+            data: JSON.stringify({changes: changes, dry_run: false}),
+            contentType: "application/json",
+            success: function(result) {
+                let content = `
+                    <div class="alert alert-success">
+                        Successfully organized ${result.total_success} files!
+                    </div>
+                `;
+                
+                if (result.total_errors > 0) {
+                    content += '<div class="alert alert-danger"><strong>Errors occurred:</strong><ul>';
+                    result.results.errors.forEach(error => {
+                        content += `<li>${error.file}: ${error.error}</li>`;
+                    });
+                    content += '</ul></div>';
+                }
+                
+                $('#organizePreviewContent').html(content);
+                $('#confirmOrganizeBtn').hide();
+                
+                // Refresh the page after a delay
+                setTimeout(function() {
+                    location.reload();
+                }, 2000);
+            },
+            error: function() {
+                $('#organizePreviewContent').html('<div class="alert alert-danger">Failed to organize library</div>');
+                $('#confirmOrganizeBtn').prop('disabled', false).html('Organize Library');
+            }
+        });
+    }
+    
+    function showCleanupDuplicatesModal() {
+        $('#duplicatesPreviewContent').html('<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>');
+        $('#cleanupDuplicatesModal').modal('show');
+        
+        $.get('/api/library/duplicates', function(result) {
+            let content = '';
+            
+            if (result.total_files === 0) {
+                content = '<div class="alert alert-info">No duplicate updates found!</div>';
+            } else {
+                content = `
+                    <div class="alert alert-warning">
+                        <strong>${result.total_files}</strong> duplicate update files found
+                        (${formatBytes(result.total_size)} can be freed)
+                    </div>
+                    <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Game</th>
+                                    <th>Version</th>
+                                    <th>Latest</th>
+                                    <th>Size</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+                
+                result.duplicates.forEach(dup => {
+                    content += `
+                        <tr>
+                            <td class="text-break">${dup.title_name}</td>
+                            <td><span class="badge bg-danger">v${dup.version}</span></td>
+                            <td><span class="badge bg-success">v${dup.latest_version}</span></td>
+                            <td>${formatBytes(dup.size)}</td>
+                        </tr>
+                    `;
+                });
+                
+                content += '</tbody></table></div>';
+            }
+            
+            $('#duplicatesPreviewContent').html(content);
+            
+            if (result.total_files > 0) {
+                $('#confirmCleanupBtn').show().data('duplicates', result.duplicates);
+            } else {
+                $('#confirmCleanupBtn').hide();
+            }
+        }).fail(function() {
+            $('#duplicatesPreviewContent').html('<div class="alert alert-danger">Failed to find duplicates</div>');
+        });
+    }
+    
+    function confirmCleanupDuplicates() {
+        const duplicates = $('#confirmCleanupBtn').data('duplicates');
+        $('#confirmCleanupBtn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm" role="status"></span> Deleting...');
+        
+        $.ajax({
+            url: '/api/library/duplicates/delete',
+            type: 'POST',
+            data: JSON.stringify({duplicates: duplicates, dry_run: false}),
+            contentType: "application/json",
+            success: function(result) {
+                let content = `
+                    <div class="alert alert-success">
+                        Successfully deleted ${result.total_deleted} files!
+                        Freed ${formatBytes(result.space_freed)}
+                    </div>
+                `;
+                
+                if (result.total_errors > 0) {
+                    content += '<div class="alert alert-danger"><strong>Errors occurred:</strong><ul>';
+                    result.results.errors.forEach(error => {
+                        content += `<li>${error.file}: ${error.error}</li>`;
+                    });
+                    content += '</ul></div>';
+                }
+                
+                $('#duplicatesPreviewContent').html(content);
+                $('#confirmCleanupBtn').hide();
+                
+                // Refresh the page after a delay
+                setTimeout(function() {
+                    location.reload();
+                }, 2000);
+            },
+            error: function() {
+                $('#duplicatesPreviewContent').html('<div class="alert alert-danger">Failed to delete duplicates</div>');
+                $('#confirmCleanupBtn').prop('disabled', false).html('Delete Duplicates');
+            }
+        });
+    }
+    
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
 </script>
+
+<!-- Organize Library Modal -->
+<div class="modal fade" id="organizeLibraryModal" tabindex="-1" aria-labelledby="organizeLibraryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="organizeLibraryModalLabel">Organize Library</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="organizePreviewContent">
+                <!-- Content will be loaded dynamically -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="confirmOrganizeBtn" onclick="confirmOrganizeLibrary()" style="display:none;">Organize Library</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cleanup Duplicates Modal -->
+<div class="modal fade" id="cleanupDuplicatesModal" tabindex="-1" aria-labelledby="cleanupDuplicatesModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cleanupDuplicatesModalLabel">Clean Duplicate Updates</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="duplicatesPreviewContent">
+                <!-- Content will be loaded dynamically -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmCleanupBtn" onclick="confirmCleanupDuplicates()" style="display:none;">Delete Duplicates</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 {% endblock %}
