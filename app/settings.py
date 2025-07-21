@@ -115,3 +115,11 @@ def set_shop_settings(data):
     settings['shop'].update(data)
     with open(CONFIG_FILE, 'w') as yaml_file:
         yaml.dump(settings, yaml_file)
+
+def set_automation_settings(data):
+    settings = load_settings()
+    if 'automation' not in settings:
+        settings['automation'] = {}
+    settings['automation'].update(data)
+    with open(CONFIG_FILE, 'w') as yaml_file:
+        yaml.dump(settings, yaml_file)

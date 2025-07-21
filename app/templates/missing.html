@@ -94,8 +94,32 @@
     </div>
 </div>
 
+<!-- Jackett Configuration Modal -->
+<div class="modal fade" id="jackettConfigModal" tabindex="-1" aria-labelledby="jackettConfigModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="jackettConfigModalLabel">Configure Jackett URL</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="jackettUrlInput" class="form-label">Jackett URL:</label>
+                    <input type="url" class="form-control" id="jackettUrlInput" placeholder="http://localhost:9117">
+                    <div class="form-text">Enter your Jackett instance URL (e.g., http://localhost:9117)</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveJackettUrl()">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     let missingData = null;
+    let jackettUrl = localStorage.getItem('jackettUrl') || '';
 
     function fetchMissingContent() {
         $('#loadingSpinner').show();
@@ -159,6 +183,14 @@
                                     ${item.owned_files.map(f => `<li>${f.filename}</li>`).join('')}
                                 </ul>
                             </div>
+                            <div class="card-footer">
+                                <button class="btn btn-sm btn-primary me-1" onclick="searchInJackett('${item.name}', 'base', '${item.title_id}')">
+                                    <i class="bi bi-search"></i> Search in Jackett
+                                </button>
+                                <button class="btn btn-sm btn-secondary" onclick="copySearchQuery('${item.name}', 'base', '${item.title_id}')">
+                                    <i class="bi bi-clipboard"></i> Copy Query
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -195,6 +227,14 @@
                                     ${item.missing_versions.map(v => `<li>v${v.version} (${v.release_date})</li>`).join('')}
                                 </ul>
                             </div>
+                            <div class="card-footer">
+                                <button class="btn btn-sm btn-primary me-1" onclick="searchInJackett('${item.name}', 'update', '${item.title_id}', '${item.latest_version}')">
+                                    <i class="bi bi-search"></i> Search in Jackett
+                                </button>
+                                <button class="btn btn-sm btn-secondary" onclick="copySearchQuery('${item.name}', 'update', '${item.title_id}', '${item.latest_version}')">
+                                    <i class="bi bi-clipboard"></i> Copy Query
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -228,6 +268,14 @@
                                 <ul class="small">
                                     ${item.missing_dlcs.map(d => `<li>${d.name} (${d.app_id})</li>`).join('')}
                                 </ul>
+                            </div>
+                            <div class="card-footer">
+                                <button class="btn btn-sm btn-primary me-1" onclick="searchInJackettDLC('${item.name}', '${item.title_id}', ${JSON.stringify(item.missing_dlcs).replace(/"/g, '&quot;')})">
+                                    <i class="bi bi-search"></i> Search in Jackett
+                                </button>
+                                <button class="btn btn-sm btn-secondary" onclick="copyDLCSearchQuery('${item.name}', ${JSON.stringify(item.missing_dlcs).replace(/"/g, '&quot;')})">
+                                    <i class="bi bi-clipboard"></i> Copy Query
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -305,10 +353,155 @@
         window.URL.revokeObjectURL(url);
     }
 
+    function saveJackettUrl() {
+        jackettUrl = $('#jackettUrlInput').val().trim();
+        if (jackettUrl && !jackettUrl.endsWith('/')) {
+            jackettUrl += '/';
+        }
+        localStorage.setItem('jackettUrl', jackettUrl);
+        $('#jackettConfigModal').modal('hide');
+    }
+    
+    function buildSearchQuery(gameName, type, titleId, version) {
+        let query = gameName;
+        
+        if (type === 'base') {
+            query += ` (NSP OR NSZ OR XCI OR XCZ)`;
+            if (titleId) {
+                query += ` [${titleId}]`;
+            }
+        } else if (type === 'update') {
+            query += ` (update OR patch)`;
+            if (version) {
+                query += ` v${version}`;
+            }
+            query += ` (NSP OR NSZ)`;
+            if (titleId) {
+                query += ` [${titleId.substring(0, 13)}800]`;
+            }
+        }
+        
+        return query;
+    }
+    
+    function buildDLCSearchQuery(gameName, dlcList) {
+        let dlcNames = dlcList.map(d => `"${d.name}"`).join(' OR ');
+        return `${gameName} DLC (${dlcNames}) (NSP OR NSZ)`;
+    }
+    
+    function searchInJackett(gameName, type, titleId, version) {
+        if (!jackettUrl) {
+            // Load from automation settings first
+            $.get('/api/settings/automation', function(result) {
+                if (result.success && result.automation?.jackett?.url) {
+                    jackettUrl = result.automation.jackett.url;
+                    if (jackettUrl && !jackettUrl.endsWith('/')) {
+                        jackettUrl += '/';
+                    }
+                    localStorage.setItem('jackettUrl', jackettUrl);
+                    performSearch(gameName, type, titleId, version);
+                } else {
+                    $('#jackettUrlInput').val(jackettUrl);
+                    $('#jackettConfigModal').modal('show');
+                }
+            }).fail(function() {
+                $('#jackettUrlInput').val(jackettUrl);
+                $('#jackettConfigModal').modal('show');
+            });
+        } else {
+            performSearch(gameName, type, titleId, version);
+        }
+    }
+    
+    function performSearch(gameName, type, titleId, version) {
+        const query = buildSearchQuery(gameName, type, titleId, version);
+        const searchUrl = `${jackettUrl}UI/Dashboard#search=${encodeURIComponent(query)}&tracker=&category=`;
+        window.open(searchUrl, '_blank');
+    }
+    
+    function searchInJackettDLC(gameName, titleId, dlcList) {
+        if (!jackettUrl) {
+            // Load from automation settings first
+            $.get('/api/settings/automation', function(result) {
+                if (result.success && result.automation?.jackett?.url) {
+                    jackettUrl = result.automation.jackett.url;
+                    if (jackettUrl && !jackettUrl.endsWith('/')) {
+                        jackettUrl += '/';
+                    }
+                    localStorage.setItem('jackettUrl', jackettUrl);
+                    performDLCSearch(gameName, dlcList);
+                } else {
+                    $('#jackettUrlInput').val(jackettUrl);
+                    $('#jackettConfigModal').modal('show');
+                }
+            }).fail(function() {
+                $('#jackettUrlInput').val(jackettUrl);
+                $('#jackettConfigModal').modal('show');
+            });
+        } else {
+            performDLCSearch(gameName, dlcList);
+        }
+    }
+    
+    function performDLCSearch(gameName, dlcList) {
+        const query = buildDLCSearchQuery(gameName, dlcList);
+        const searchUrl = `${jackettUrl}UI/Dashboard#search=${encodeURIComponent(query)}&tracker=&category=`;
+        window.open(searchUrl, '_blank');
+    }
+    
+    function copySearchQuery(gameName, type, titleId, version) {
+        const query = buildSearchQuery(gameName, type, titleId, version);
+        navigator.clipboard.writeText(query).then(function() {
+            // Show temporary success message
+            const btn = event.target.closest('button');
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-check"></i> Copied!';
+            btn.classList.add('btn-success');
+            btn.classList.remove('btn-secondary');
+            
+            setTimeout(() => {
+                btn.innerHTML = originalHtml;
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-secondary');
+            }, 2000);
+        });
+    }
+    
+    function copyDLCSearchQuery(gameName, dlcList) {
+        const query = buildDLCSearchQuery(gameName, dlcList);
+        navigator.clipboard.writeText(query).then(function() {
+            // Show temporary success message
+            const btn = event.target.closest('button');
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-check"></i> Copied!';
+            btn.classList.add('btn-success');
+            btn.classList.remove('btn-secondary');
+            
+            setTimeout(() => {
+                btn.innerHTML = originalHtml;
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-secondary');
+            }, 2000);
+        });
+    }
+
     $(document).ready(function() {
         fetchMissingContent();
         
         $('#exportBtn').click(exportMissingList);
+        
+        // Load Jackett URL from automation settings if not in localStorage
+        if (!jackettUrl) {
+            $.get('/api/settings/automation', function(result) {
+                if (result.success && result.automation?.jackett?.url) {
+                    jackettUrl = result.automation.jackett.url;
+                    if (jackettUrl && !jackettUrl.endsWith('/')) {
+                        jackettUrl += '/';
+                    }
+                    localStorage.setItem('jackettUrl', jackettUrl);
+                }
+            });
+        }
     });
 </script>
 {% endblock %}

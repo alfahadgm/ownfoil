@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(sudo apt:*)"
+      "Bash(sudo apt:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": []
   }

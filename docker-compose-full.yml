@@ -1,0 +1,139 @@
+version: "3.8"
+
+services:
+  ownfoil:
+    container_name: ownfoil
+    image: a1ex4/ownfoil:v2
+    restart: unless-stopped
+    environment:
+      # For write permission in config directory
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      # Optional: create/update admin user at startup
+      - USER_ADMIN_NAME=${ADMIN_USER:-admin}
+      - USER_ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+    volumes:
+      - ${GAMES_DIR:-./games}:/games
+      - ./config/ownfoil:/app/config
+    ports:
+      - "${OWNFOIL_PORT:-8465}:8465"
+    depends_on:
+      - qbittorrent
+    networks:
+      - ownfoil-net
+
+  qbittorrent:
+    container_name: qbittorrent
+    image: lscr.io/linuxserver/qbittorrent:latest
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-UTC}
+      - WEBUI_PORT=8080
+    volumes:
+      - ./config/qbittorrent:/config
+      - ${DOWNLOADS_DIR:-./downloads}:/downloads
+      - ${GAMES_DIR:-./games}:/games  # Shared with ownfoil for hardlinks
+    ports:
+      - "${QBITTORRENT_PORT:-8080}:8080"
+      - "6881:6881"
+      - "6881:6881/udp"
+    networks:
+      - ownfoil-net
+
+  jackett:
+    container_name: jackett
+    image: lscr.io/linuxserver/jackett:latest
+    restart: unless-stopped
+    environment:
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - TZ=${TZ:-UTC}
+      - AUTO_UPDATE=true
+    volumes:
+      - ./config/jackett:/config
+      - ${DOWNLOADS_DIR:-./downloads}:/downloads
+    ports:
+      - "${JACKETT_PORT:-9117}:9117"
+    networks:
+      - ownfoil-net
+
+  unpackerr:
+    container_name: unpackerr
+    image: golift/unpackerr:latest
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    volumes:
+      - ./config/unpackerr:/config
+      - ${DOWNLOADS_DIR:-./downloads}:/downloads
+    environment:
+      - TZ=${TZ:-UTC}
+      - UN_DEBUG=false
+      - UN_LOG_FILE=
+      - UN_LOG_FILES=10
+      - UN_LOG_FILE_MB=10
+      - UN_INTERVAL=2m
+      - UN_START_DELAY=1m
+      - UN_RETRY_DELAY=5m
+      - UN_MAX_RETRIES=3
+      - UN_PARALLEL=1
+      - UN_FILE_MODE=0644
+      - UN_DIR_MODE=0755
+      # qBittorrent Config
+      - UN_QBIT_0_URL=http://qbittorrent:8080
+      - UN_QBIT_0_USER=admin
+      - UN_QBIT_0_PASS=adminpass
+      - UN_QBIT_0_PATH_0=/downloads/complete
+      - UN_QBIT_0_PROTOCOLS=torrent
+      - UN_QBIT_0_TIMEOUT=10s
+      - UN_QBIT_0_DELETE_DELAY=5m
+      - UN_QBIT_0_DELETE_ORIG=false
+      - UN_QBIT_0_SYNCTHING=
+    depends_on:
+      - qbittorrent
+    networks:
+      - ownfoil-net
+
+  # Optional: Portainer for container management
+  portainer:
+    container_name: portainer
+    image: portainer/portainer-ce:latest
+    restart: unless-stopped
+    ports:
+      - "${PORTAINER_PORT:-9000}:9000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./config/portainer:/data
+    networks:
+      - ownfoil-net
+    profiles:
+      - management
+
+  # Optional: Watchtower for automatic updates
+  watchtower:
+    container_name: watchtower
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_SCHEDULE=0 0 4 * * *  # Daily at 4 AM
+      - WATCHTOWER_NOTIFICATIONS=email
+      - WATCHTOWER_NOTIFICATION_EMAIL_FROM=${EMAIL_FROM:-}
+      - WATCHTOWER_NOTIFICATION_EMAIL_TO=${EMAIL_TO:-}
+      - WATCHTOWER_NOTIFICATION_EMAIL_SERVER=${SMTP_SERVER:-}
+      - WATCHTOWER_NOTIFICATION_EMAIL_SERVER_PORT=${SMTP_PORT:-587}
+      - WATCHTOWER_NOTIFICATION_EMAIL_SERVER_USER=${SMTP_USER:-}
+      - WATCHTOWER_NOTIFICATION_EMAIL_SERVER_PASSWORD=${SMTP_PASS:-}
+    networks:
+      - ownfoil-net
+    profiles:
+      - management
+
+networks:
+  ownfoil-net:
+    driver: bridge
+
+# Volumes are defined with bind mounts above for easier path configuration

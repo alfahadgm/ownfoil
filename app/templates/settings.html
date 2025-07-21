@@ -298,6 +298,109 @@
                         onClick='submitShopSettings()'>Submit</button>
                 </div>
 
+                <hr>
+
+                <h2 class="pb-3">Automation</h2>
+                <p>Configure automation services for game management.</p>
+                
+                <!-- qBittorrent Configuration -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0">qBittorrent Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="qbitUrlInput" class="form-label">qBittorrent URL:</label>
+                            <input class="form-control" id="qbitUrlInput" placeholder="http://localhost:8080" aria-describedby="qbitUrlHelp">
+                            <div id="qbitUrlHelp" class="form-text">URL to your qBittorrent Web UI (e.g., http://localhost:8080)</div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="qbitUsernameInput" class="form-label">Username:</label>
+                                    <input class="form-control" id="qbitUsernameInput" placeholder="admin">
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="qbitPasswordInput" class="form-label">Password:</label>
+                                    <input type="password" class="form-control" id="qbitPasswordInput" placeholder="Password">
+                                    <div class="form-text text-warning">Note: Password is stored in plain text</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label for="qbitCategoryInput" class="form-label">Category:</label>
+                            <input class="form-control" id="qbitCategoryInput" placeholder="nintendo-switch" aria-describedby="qbitCategoryHelp">
+                            <div id="qbitCategoryHelp" class="form-text">Category to use for Switch games in qBittorrent</div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="testConnection('qbittorrent')">
+                            <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+                            Test Connection
+                        </button>
+                        <span id="qbitTestResult" class="ms-2"></span>
+                    </div>
+                </div>
+                
+                <!-- Jackett Configuration -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0">Jackett Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="jackettUrlInput" class="form-label">Jackett URL:</label>
+                            <input class="form-control" id="jackettUrlInput" placeholder="http://localhost:9117" aria-describedby="jackettUrlHelp">
+                            <div id="jackettUrlHelp" class="form-text">URL to your Jackett instance (e.g., http://localhost:9117)</div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="testConnection('jackett')">
+                            <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+                            Test Connection
+                        </button>
+                        <span id="jackettTestResult" class="ms-2"></span>
+                    </div>
+                </div>
+                
+                <!-- Processing Options -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5 class="mb-0">Processing Options</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="form-check mb-2">
+                            <input type="checkbox" class="form-check-input" id="autoExtractCheck" checked>
+                            <label class="form-check-label" for="autoExtractCheck">
+                                Automatically extract archives (RAR, ZIP, 7Z)
+                            </label>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input type="checkbox" class="form-check-input" id="autoOrganizeCheck" checked>
+                            <label class="form-check-label" for="autoOrganizeCheck">
+                                Automatically organize files into GameName/TYPE structure
+                            </label>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input type="checkbox" class="form-check-input" id="useHardlinksCheck" checked>
+                            <label class="form-check-label" for="useHardlinksCheck">
+                                Use hardlinks when possible (saves disk space)
+                            </label>
+                            <div class="form-text">Note: Hardlinks require source and destination on same filesystem</div>
+                        </div>
+                        <div class="form-check mb-2">
+                            <input type="checkbox" class="form-check-input" id="deleteAfterProcessCheck">
+                            <label class="form-check-label" for="deleteAfterProcessCheck">
+                                Delete source files after successful processing
+                            </label>
+                            <div class="form-text text-danger">Warning: This permanently deletes processed files</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <button type="button" id="submitAutomationSettingsBtn" class="btn btn-primary"
+                        onClick='submitAutomationSettings()'>Submit</button>
+                </div>
+
             </div>
         </div>
     </div>
@@ -695,6 +798,102 @@
         });
     }
 
+    function testConnection(service) {
+        const btn = event.target.closest('button');
+        const spinner = btn.querySelector('.spinner-border');
+        const resultSpan = document.getElementById(service === 'qbittorrent' ? 'qbitTestResult' : 'jackettTestResult');
+        
+        // Show spinner
+        spinner.classList.remove('d-none');
+        btn.disabled = true;
+        resultSpan.textContent = '';
+        resultSpan.className = '';
+        
+        $.ajax({
+            url: '/api/automation/test',
+            type: 'POST',
+            data: JSON.stringify({ service: service }),
+            contentType: "application/json",
+            success: function(result) {
+                spinner.classList.add('d-none');
+                btn.disabled = false;
+                
+                if (result.success) {
+                    resultSpan.className = 'text-success';
+                    resultSpan.innerHTML = '<i class="bi bi-check-circle"></i> ' + result.message;
+                } else {
+                    resultSpan.className = 'text-danger';
+                    resultSpan.innerHTML = '<i class="bi bi-x-circle"></i> ' + result.message;
+                }
+            },
+            error: function() {
+                spinner.classList.add('d-none');
+                btn.disabled = false;
+                resultSpan.className = 'text-danger';
+                resultSpan.innerHTML = '<i class="bi bi-x-circle"></i> Connection test failed';
+            }
+        });
+    }
+    
+    function submitAutomationSettings() {
+        $('#submitAutomationSettingsBtn').prop('disabled', true);
+        
+        const automationConfig = {
+            qbittorrent: {
+                url: $('#qbitUrlInput').val().trim(),
+                username: $('#qbitUsernameInput').val().trim(),
+                password: $('#qbitPasswordInput').val().trim(),
+                category: $('#qbitCategoryInput').val().trim() || 'nintendo-switch'
+            },
+            jackett: {
+                url: $('#jackettUrlInput').val().trim()
+            },
+            processing: {
+                auto_extract: $('#autoExtractCheck').is(':checked'),
+                auto_organize: $('#autoOrganizeCheck').is(':checked'),
+                use_hardlinks: $('#useHardlinksCheck').is(':checked'),
+                delete_after_process: $('#deleteAfterProcessCheck').is(':checked')
+            }
+        };
+        
+        $.ajax({
+            url: '/api/settings/automation',
+            type: 'POST',
+            data: JSON.stringify({ automation: automationConfig }),
+            contentType: "application/json",
+            success: function(result) {
+                if (result.success) {
+                    // Show success message
+                    const alert = $('<div class="alert alert-success alert-dismissible fade show" role="alert">' +
+                        'Automation settings saved successfully!' +
+                        '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>' +
+                        '</div>');
+                    $('#submitAutomationSettingsBtn').parent().prepend(alert);
+                    
+                    // Auto-dismiss after 3 seconds
+                    setTimeout(() => alert.alert('close'), 3000);
+                } else {
+                    // Show error messages
+                    const errorList = result.errors.map(e => `<li>${e}</li>`).join('');
+                    const alert = $('<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
+                        '<strong>Error saving settings:</strong><ul>' + errorList + '</ul>' +
+                        '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>' +
+                        '</div>');
+                    $('#submitAutomationSettingsBtn').parent().prepend(alert);
+                }
+                $('#submitAutomationSettingsBtn').prop('disabled', false);
+            },
+            error: function() {
+                const alert = $('<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
+                    'Failed to save automation settings' +
+                    '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>' +
+                    '</div>');
+                $('#submitAutomationSettingsBtn').parent().prepend(alert);
+                $('#submitAutomationSettingsBtn').prop('disabled', false);
+            }
+        });
+    }
+
     $(document).ready(function () {
         fillUserTable();
         fillLibraryTable();
@@ -735,6 +934,34 @@
             } else if (!shopSettings['hauth']) {
                 $("#missingShopHauthAlert").css('display', '');
             }
+            
+            // Load automation settings
+            $.getJSON("/api/settings/automation", function (result) {
+                if (result.success && result.automation) {
+                    const automation = result.automation;
+                    
+                    // qBittorrent settings
+                    if (automation.qbittorrent) {
+                        $('#qbitUrlInput').val(automation.qbittorrent.url || '');
+                        $('#qbitUsernameInput').val(automation.qbittorrent.username || '');
+                        $('#qbitPasswordInput').val(automation.qbittorrent.password || '');
+                        $('#qbitCategoryInput').val(automation.qbittorrent.category || 'nintendo-switch');
+                    }
+                    
+                    // Jackett settings
+                    if (automation.jackett) {
+                        $('#jackettUrlInput').val(automation.jackett.url || '');
+                    }
+                    
+                    // Processing settings
+                    if (automation.processing) {
+                        $('#autoExtractCheck').prop('checked', automation.processing.auto_extract !== false);
+                        $('#autoOrganizeCheck').prop('checked', automation.processing.auto_organize !== false);
+                        $('#useHardlinksCheck').prop('checked', automation.processing.use_hardlinks !== false);
+                        $('#deleteAfterProcessCheck').prop('checked', automation.processing.delete_after_process === true);
+                    }
+                }
+            });
         });
 
     });

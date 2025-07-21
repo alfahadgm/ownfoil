@@ -17,6 +17,7 @@ from auth import *
 from titles import *
 from utils import *
 from library import *
+from automation import AutomationManager
 import titledb
 import os
 
@@ -308,6 +309,79 @@ def library_paths_api():
             'errors': errors
         }
     return jsonify(resp)
+
+@app.route('/api/settings/automation', methods=['GET', 'POST'])
+@access_required('admin')
+def automation_settings_api():
+    """Get or update automation settings"""
+    if request.method == 'GET':
+        reload_conf()
+        automation_config = app_settings.get('automation', {})
+        # Don't send password in GET response
+        if 'qbittorrent' in automation_config and 'password' in automation_config['qbittorrent']:
+            automation_config = automation_config.copy()
+            automation_config['qbittorrent'] = automation_config['qbittorrent'].copy()
+            automation_config['qbittorrent']['password'] = '***' if automation_config['qbittorrent']['password'] else ''
+        return jsonify({
+            'success': True,
+            'automation': automation_config
+        })
+    
+    elif request.method == 'POST':
+        data = request.json
+        automation_config = data.get('automation', {})
+        
+        # Validate configuration
+        automation_mgr = AutomationManager(app_settings)
+        valid, errors = automation_mgr.validate_automation_config(automation_config)
+        
+        if not valid:
+            return jsonify({
+                'success': False,
+                'errors': errors
+            }), 400
+        
+        # Don't update password if it's masked
+        if 'qbittorrent' in automation_config:
+            qbit = automation_config['qbittorrent']
+            if qbit.get('password') == '***':
+                # Keep existing password
+                current_qbit = app_settings.get('automation', {}).get('qbittorrent', {})
+                qbit['password'] = current_qbit.get('password', '')
+        
+        # Update settings
+        set_automation_settings(automation_config)
+        reload_conf()
+        
+        return jsonify({
+            'success': True,
+            'message': 'Automation settings updated successfully'
+        })
+
+@app.post('/api/automation/test')
+@access_required('admin')
+def test_automation_connection():
+    """Test connections to automation services"""
+    data = request.json
+    service = data.get('service')
+    
+    reload_conf()
+    automation_mgr = AutomationManager(app_settings)
+    
+    if service == 'qbittorrent':
+        success, message = automation_mgr.test_qbittorrent_connection()
+    elif service == 'jackett':
+        success, message = automation_mgr.test_jackett_connection()
+    else:
+        return jsonify({
+            'success': False,
+            'message': 'Invalid service specified'
+        }), 400
+    
+    return jsonify({
+        'success': success,
+        'message': message
+    })
 
 def allowed_file(filename):
     return '.' in filename and \

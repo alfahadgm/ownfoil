@@ -34,6 +34,24 @@ DEFAULT_SETTINGS = {
         "clientCertKey": "-----BEGIN PRIVATE KEY-----",
         "host": "",
         "hauth": "",
+    },
+    "automation": {
+        "qbittorrent": {
+            "url": "",
+            "username": "",
+            "password": "",
+            "category": "nintendo-switch"
+        },
+        "jackett": {
+            "url": ""
+        },
+        "processing": {
+            "auto_extract": True,
+            "auto_organize": True,
+            "use_hardlinks": True,
+            "delete_after_process": False,
+            "extract_passwords": ["", "switch", "nintendo"]
+        }
     }
 }
 
