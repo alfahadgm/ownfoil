@@ -101,6 +101,54 @@ class QBittorrentClient:
         except Exception as e:
             logger.error(f"Failed to set category: {e}")
             return False
+            
+    def add_torrent(self, urls: str, category: Optional[str] = None, 
+                   save_path: Optional[str] = None, sequential_download: bool = False) -> Tuple[bool, str]:
+        """Add torrent(s) to qBittorrent
+        
+        Args:
+            urls: Magnet link(s) or torrent file URL(s), separated by newlines
+            category: Category to assign to the torrent
+            save_path: Download location (uses default if not specified)
+            sequential_download: Enable sequential download for streaming
+            
+        Returns:
+            Tuple of (success, message)
+        """
+        if not self._sid and not self.login():
+            return False, "Failed to authenticate with qBittorrent"
+            
+        try:
+            data = {
+                'urls': urls,
+                'autoTMM': 'false' if save_path else 'true'  # Auto Torrent Management
+            }
+            
+            if category:
+                data['category'] = category
+            if save_path:
+                data['savepath'] = save_path
+            if sequential_download:
+                data['sequentialDownload'] = 'true'
+                
+            response = self.session.post(
+                self._get_api_url('torrents/add'),
+                data=data
+            )
+            
+            if response.status_code == 200:
+                if response.text == 'Ok.':
+                    return True, "Torrent added successfully"
+                else:
+                    return True, f"Torrent added (response: {response.text})"
+            elif response.status_code == 415:
+                return False, "Torrent file is not valid"
+            else:
+                return False, f"Failed to add torrent: HTTP {response.status_code}"
+                
+        except Exception as e:
+            logger.error(f"Failed to add torrent: {e}")
+            return False, f"Error adding torrent: {str(e)}"
 
 
 class JackettClient:

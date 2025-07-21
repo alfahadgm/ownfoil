@@ -495,6 +495,65 @@ def jackett_search():
         'total': len(filtered_results)
     })
 
+@app.post('/api/automation/download')
+@access_required('admin')
+def download_torrent():
+    """Add a torrent to qBittorrent for download"""
+    data = request.json
+    magnet_link = data.get('magnet_link', '')
+    torrent_url = data.get('torrent_url', '')
+    
+    if not magnet_link and not torrent_url:
+        return jsonify({
+            'success': False,
+            'message': 'Either magnet_link or torrent_url is required'
+        }), 400
+        
+    reload_conf()
+    automation_config = app_settings.get('automation', {})
+    qbit_config = automation_config.get('qbittorrent', {})
+    
+    if not qbit_config.get('url'):
+        return jsonify({
+            'success': False,
+            'message': 'qBittorrent not configured'
+        }), 400
+        
+    # Create qBittorrent client
+    from automation import QBittorrentClient
+    qbit_client = QBittorrentClient(
+        qbit_config['url'],
+        qbit_config.get('username', ''),
+        qbit_config.get('password', '')
+    )
+    
+    # Use magnet link if provided, otherwise use torrent URL
+    url_to_add = magnet_link if magnet_link else torrent_url
+    
+    # Get configured category and download path
+    category = qbit_config.get('category', '')
+    download_path = automation_config.get('processing', {}).get('download_path')
+    
+    # Add the torrent
+    success, message = qbit_client.add_torrent(
+        urls=url_to_add,
+        category=category,
+        save_path=download_path
+    )
+    
+    if success:
+        logger.info(f"Added torrent to qBittorrent: {url_to_add[:100]}...")
+        return jsonify({
+            'success': True,
+            'message': message
+        })
+    else:
+        logger.error(f"Failed to add torrent: {message}")
+        return jsonify({
+            'success': False,
+            'message': message
+        }), 500
+
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ['keys', 'txt']

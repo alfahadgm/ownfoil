@@ -152,6 +152,9 @@
                         <button class="btn btn-sm btn-secondary float-end" onclick="openJackettWeb()">
                             <i class="bi bi-box-arrow-up-right"></i> Open in Jackett
                         </button>
+                        <div class="text-muted small mt-2">
+                            <i class="bi bi-info-circle"></i> Click the download button to send torrents directly to qBittorrent
+                        </div>
                     </div>
                     <div class="table-responsive">
                         <table class="table table-hover">
@@ -689,6 +692,10 @@
             const actions = $('<td>');
             if (result.magnet_link) {
                 actions.append(`
+                    <button class="btn btn-sm btn-success me-1" onclick="downloadTorrent('${escapeHtml(result.magnet_link)}', '${escapeHtml(result.title)}')" 
+                            title="Download to qBittorrent">
+                        <i class="bi bi-download"></i>
+                    </button>
                     <button class="btn btn-sm btn-primary me-1" onclick="copyMagnet('${escapeHtml(result.magnet_link)}')" 
                             title="Copy magnet link">
                         <i class="bi bi-magnet"></i>
@@ -738,6 +745,90 @@
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+    
+    function downloadTorrent(magnetLink, title) {
+        const btn = event.target.closest('button');
+        const originalHtml = btn.innerHTML;
+        
+        // Show downloading state
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i>';
+        btn.disabled = true;
+        
+        $.ajax({
+            url: '/api/automation/download',
+            type: 'POST',
+            data: JSON.stringify({
+                magnet_link: magnetLink
+            }),
+            contentType: 'application/json',
+            success: function(result) {
+                // Show success
+                btn.innerHTML = '<i class="bi bi-check-circle"></i>';
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-info');
+                
+                // Show toast notification
+                showNotification('success', `Added "${title}" to qBittorrent`);
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('btn-info');
+                    btn.classList.add('btn-success');
+                    btn.disabled = false;
+                }, 3000);
+            },
+            error: function(xhr) {
+                // Show error
+                btn.innerHTML = '<i class="bi bi-x-circle"></i>';
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-danger');
+                
+                let errorMsg = 'Failed to add torrent';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                }
+                
+                showNotification('error', errorMsg);
+                
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                    btn.classList.remove('btn-danger');
+                    btn.classList.add('btn-success');
+                    btn.disabled = false;
+                }, 3000);
+            }
+        });
+    }
+    
+    function showNotification(type, message) {
+        // Create toast element
+        const toastHtml = `
+            <div class="toast align-items-center text-white bg-${type === 'success' ? 'success' : 'danger'} border-0" role="alert" aria-live="assertive" aria-atomic="true">
+                <div class="d-flex">
+                    <div class="toast-body">
+                        ${message}
+                    </div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+            </div>
+        `;
+        
+        // Add toast container if it doesn't exist
+        if ($('#toastContainer').length === 0) {
+            $('body').append('<div id="toastContainer" class="toast-container position-fixed bottom-0 end-0 p-3"></div>');
+        }
+        
+        const toastElement = $(toastHtml);
+        $('#toastContainer').append(toastElement);
+        
+        const toast = new bootstrap.Toast(toastElement[0]);
+        toast.show();
+        
+        // Remove toast element after it's hidden
+        toastElement[0].addEventListener('hidden.bs.toast', function () {
+            toastElement.remove();
+        });
     }
 
     $(document).ready(function() {
