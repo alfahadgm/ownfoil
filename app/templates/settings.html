@@ -353,6 +353,11 @@
                             <input class="form-control" id="jackettUrlInput" placeholder="http://localhost:9117" aria-describedby="jackettUrlHelp">
                             <div id="jackettUrlHelp" class="form-text">URL to your Jackett instance (e.g., http://localhost:9117)</div>
                         </div>
+                        <div class="mb-3">
+                            <label for="jackettApiKeyInput" class="form-label">API Key (Optional):</label>
+                            <input type="password" class="form-control" id="jackettApiKeyInput" placeholder="Your Jackett API key" aria-describedby="jackettApiKeyHelp">
+                            <div id="jackettApiKeyHelp" class="form-text">Found in Jackett dashboard. Required for API searches (optional for web UI searches)</div>
+                        </div>
                         <button type="button" class="btn btn-sm btn-secondary" onclick="testConnection('jackett')">
                             <span class="spinner-border spinner-border-sm d-none" role="status"></span>
                             Test Connection
@@ -803,6 +808,32 @@
         const spinner = btn.querySelector('.spinner-border');
         const resultSpan = document.getElementById(service === 'qbittorrent' ? 'qbitTestResult' : 'jackettTestResult');
         
+        // Get current form values
+        let testConfig = {};
+        if (service === 'qbittorrent') {
+            testConfig = {
+                url: $('#qbitUrlInput').val().trim(),
+                username: $('#qbitUsernameInput').val().trim(),
+                password: $('#qbitPasswordInput').val().trim()
+            };
+            
+            if (!testConfig.url) {
+                resultSpan.className = 'text-danger';
+                resultSpan.innerHTML = '<i class="bi bi-x-circle"></i> Please enter qBittorrent URL';
+                return;
+            }
+        } else if (service === 'jackett') {
+            testConfig = {
+                url: $('#jackettUrlInput').val().trim()
+            };
+            
+            if (!testConfig.url) {
+                resultSpan.className = 'text-danger';
+                resultSpan.innerHTML = '<i class="bi bi-x-circle"></i> Please enter Jackett URL';
+                return;
+            }
+        }
+        
         // Show spinner
         spinner.classList.remove('d-none');
         btn.disabled = true;
@@ -812,7 +843,10 @@
         $.ajax({
             url: '/api/automation/test',
             type: 'POST',
-            data: JSON.stringify({ service: service }),
+            data: JSON.stringify({ 
+                service: service,
+                config: testConfig 
+            }),
             contentType: "application/json",
             success: function(result) {
                 spinner.classList.add('d-none');
@@ -846,7 +880,8 @@
                 category: $('#qbitCategoryInput').val().trim() || 'nintendo-switch'
             },
             jackett: {
-                url: $('#jackettUrlInput').val().trim()
+                url: $('#jackettUrlInput').val().trim(),
+                api_key: $('#jackettApiKeyInput').val().trim()
             },
             processing: {
                 auto_extract: $('#autoExtractCheck').is(':checked'),
@@ -951,6 +986,7 @@
                     // Jackett settings
                     if (automation.jackett) {
                         $('#jackettUrlInput').val(automation.jackett.url || '');
+                        $('#jackettApiKeyInput').val(automation.jackett.api_key || '');
                     }
                     
                     // Processing settings

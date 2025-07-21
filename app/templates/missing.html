@@ -35,6 +35,19 @@
         </div>
     </div>
 
+    <!-- Search Tips -->
+    <div class="alert alert-info alert-dismissible fade show mb-3" role="alert">
+        <h6 class="alert-heading"><i class="bi bi-lightbulb"></i> Search Tips</h6>
+        <p class="mb-0">Searches now use simplified queries for better results. When searching:</p>
+        <ul class="mb-0">
+            <li>Base games: Searches for just the game name</li>
+            <li>Updates: Searches for game name + "update"</li>
+            <li>DLC: Searches for game name + "DLC"</li>
+        </ul>
+        <small>After searching, look for the Title ID in the torrent filenames or descriptions to find the correct content.</small>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+
     <!-- Filter Controls -->
     <div class="row mb-3">
         <div class="col-auto">
@@ -117,6 +130,54 @@
     </div>
 </div>
 
+<!-- Jackett Search Results Modal -->
+<div class="modal fade" id="jackettSearchModal" tabindex="-1" aria-labelledby="jackettSearchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="jackettSearchModalLabel">Search Results</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="searchLoading" class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Searching...</span>
+                    </div>
+                    <p class="mt-2">Searching torrents...</p>
+                </div>
+                <div id="searchError" class="alert alert-danger d-none" role="alert"></div>
+                <div id="searchResults" class="d-none">
+                    <div class="mb-3">
+                        <span id="searchResultCount"></span>
+                        <button class="btn btn-sm btn-secondary float-end" onclick="openJackettWeb()">
+                            <i class="bi bi-box-arrow-up-right"></i> Open in Jackett
+                        </button>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Size</th>
+                                    <th>Seeders</th>
+                                    <th>Leechers</th>
+                                    <th>Indexer</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="searchResultsBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     let missingData = null;
     let jackettUrl = localStorage.getItem('jackettUrl') || '';
@@ -184,11 +245,17 @@
                                 </ul>
                             </div>
                             <div class="card-footer">
-                                <button class="btn btn-sm btn-primary me-1" onclick="searchInJackett('${item.name}', 'base', '${item.title_id}')">
-                                    <i class="bi bi-search"></i> Search in Jackett
+                                <button class="btn btn-sm btn-success me-1" onclick="smartSearch('${item.name}', 'base', '${item.title_id}')" 
+                                        title="Search and filter results within ownfoil (requires API key)">
+                                    <i class="bi bi-lightning"></i> Smart Search
                                 </button>
-                                <button class="btn btn-sm btn-secondary" onclick="copySearchQuery('${item.name}', 'base', '${item.title_id}')">
-                                    <i class="bi bi-clipboard"></i> Copy Query
+                                <button class="btn btn-sm btn-primary me-1" onclick="searchInJackett('${item.name}', 'base', '${item.title_id}')" 
+                                        title="Search for game name only. Look for Title ID [${item.title_id}] in the results.">
+                                    <i class="bi bi-search"></i> Quick Search
+                                </button>
+                                <button class="btn btn-sm btn-secondary" onclick="copySearchQuery('${item.name}', 'base', '${item.title_id}')"
+                                        title="Copy simplified search query to clipboard">
+                                    <i class="bi bi-clipboard"></i> Copy
                                 </button>
                             </div>
                         </div>
@@ -228,11 +295,17 @@
                                 </ul>
                             </div>
                             <div class="card-footer">
-                                <button class="btn btn-sm btn-primary me-1" onclick="searchInJackett('${item.name}', 'update', '${item.title_id}', '${item.latest_version}')">
-                                    <i class="bi bi-search"></i> Search in Jackett
+                                <button class="btn btn-sm btn-success me-1" onclick="smartSearch('${item.name}', 'update', '${item.title_id}', '${item.latest_version}')" 
+                                        title="Search and filter results within ownfoil (requires API key)">
+                                    <i class="bi bi-lightning"></i> Smart Search
                                 </button>
-                                <button class="btn btn-sm btn-secondary" onclick="copySearchQuery('${item.name}', 'update', '${item.title_id}', '${item.latest_version}')">
-                                    <i class="bi bi-clipboard"></i> Copy Query
+                                <button class="btn btn-sm btn-primary me-1" onclick="searchInJackett('${item.name}', 'update', '${item.title_id}', '${item.latest_version}')"
+                                        title="Search for '${item.name} update'. Look for v${item.latest_version} and Title ID [${item.title_id}] in results.">
+                                    <i class="bi bi-search"></i> Quick Search
+                                </button>
+                                <button class="btn btn-sm btn-secondary" onclick="copySearchQuery('${item.name}', 'update', '${item.title_id}', '${item.latest_version}')"
+                                        title="Copy simplified search query to clipboard">
+                                    <i class="bi bi-clipboard"></i> Copy
                                 </button>
                             </div>
                         </div>
@@ -270,11 +343,17 @@
                                 </ul>
                             </div>
                             <div class="card-footer">
-                                <button class="btn btn-sm btn-primary me-1" onclick="searchInJackettDLC('${item.name}', '${item.title_id}', ${JSON.stringify(item.missing_dlcs).replace(/"/g, '&quot;')})">
-                                    <i class="bi bi-search"></i> Search in Jackett
+                                <button class="btn btn-sm btn-success me-1" onclick="smartSearchDLC('${item.name}', '${item.title_id}', ${JSON.stringify(item.missing_dlcs).replace(/"/g, '&quot;')})" 
+                                        title="Search and filter results within ownfoil (requires API key)">
+                                    <i class="bi bi-lightning"></i> Smart Search
                                 </button>
-                                <button class="btn btn-sm btn-secondary" onclick="copyDLCSearchQuery('${item.name}', ${JSON.stringify(item.missing_dlcs).replace(/"/g, '&quot;')})">
-                                    <i class="bi bi-clipboard"></i> Copy Query
+                                <button class="btn btn-sm btn-primary me-1" onclick="searchInJackettDLC('${item.name}', '${item.title_id}', ${JSON.stringify(item.missing_dlcs).replace(/"/g, '&quot;')})"
+                                        title="Search for '${item.name} DLC'. Look for specific DLC names and Title IDs in results.">
+                                    <i class="bi bi-search"></i> Quick Search
+                                </button>
+                                <button class="btn btn-sm btn-secondary" onclick="copyDLCSearchQuery('${item.name}', ${JSON.stringify(item.missing_dlcs).replace(/"/g, '&quot;')})"
+                                        title="Copy simplified search query to clipboard">
+                                    <i class="bi bi-clipboard"></i> Copy
                                 </button>
                             </div>
                         </div>
@@ -363,6 +442,27 @@
     }
     
     function buildSearchQuery(gameName, type, titleId, version) {
+        // Use simplified queries for better search results
+        let query = gameName;
+        
+        if (type === 'base') {
+            // Just search for the game name
+            return query;
+        } else if (type === 'update') {
+            // Add "update" keyword for updates
+            return `${query} update`;
+        }
+        
+        return query;
+    }
+    
+    function buildDLCSearchQuery(gameName, dlcList) {
+        // Simple search: game name + DLC
+        return `${gameName} DLC`;
+    }
+    
+    function buildAdvancedSearchQuery(gameName, type, titleId, version) {
+        // Keep the old complex query for advanced/manual searches
         let query = gameName;
         
         if (type === 'base') {
@@ -384,7 +484,7 @@
         return query;
     }
     
-    function buildDLCSearchQuery(gameName, dlcList) {
+    function buildAdvancedDLCSearchQuery(gameName, dlcList) {
         let dlcNames = dlcList.map(d => `"${d.name}"`).join(' OR ');
         return `${gameName} DLC (${dlcNames}) (NSP OR NSZ)`;
     }
@@ -483,6 +583,146 @@
                 btn.classList.add('btn-secondary');
             }, 2000);
         });
+    }
+
+    // Smart Search Functions
+    let currentSearchQuery = '';
+    let currentSearchType = '';
+    let currentTitleId = '';
+    
+    function smartSearch(gameName, type, titleId, version) {
+        currentSearchQuery = buildSearchQuery(gameName, type, titleId, version);
+        currentSearchType = type;
+        currentTitleId = titleId;
+        
+        // Show modal
+        $('#jackettSearchModal').modal('show');
+        $('#searchLoading').removeClass('d-none');
+        $('#searchError').addClass('d-none');
+        $('#searchResults').addClass('d-none');
+        
+        // Perform API search
+        $.ajax({
+            url: '/api/jackett/search',
+            type: 'POST',
+            data: JSON.stringify({
+                query: currentSearchQuery,
+                type: type,
+                title_id: titleId
+            }),
+            contentType: 'application/json',
+            success: function(result) {
+                $('#searchLoading').addClass('d-none');
+                
+                if (result.success) {
+                    displaySearchResults(result.results, result.total);
+                } else {
+                    showSearchError(result.message || 'Search failed');
+                }
+            },
+            error: function(xhr) {
+                $('#searchLoading').addClass('d-none');
+                let errorMsg = 'Search failed';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                }
+                showSearchError(errorMsg);
+            }
+        });
+    }
+    
+    function smartSearchDLC(gameName, titleId, dlcList) {
+        currentSearchQuery = buildDLCSearchQuery(gameName, dlcList);
+        currentSearchType = 'dlc';
+        currentTitleId = titleId;
+        
+        smartSearch(gameName, 'dlc', titleId);
+    }
+    
+    function displaySearchResults(results, total) {
+        $('#searchResults').removeClass('d-none');
+        $('#searchResultCount').text(`Found ${total} results (showing top ${results.length})`);
+        
+        const tbody = $('#searchResultsBody');
+        tbody.empty();
+        
+        if (results.length === 0) {
+            tbody.append('<tr><td colspan="6" class="text-center">No results found</td></tr>');
+            return;
+        }
+        
+        results.forEach(result => {
+            const row = $('<tr>');
+            
+            // Title with highlights
+            let titleHtml = escapeHtml(result.title);
+            if (result.has_title_id) {
+                titleHtml = titleHtml.replace(new RegExp(currentTitleId, 'gi'), 
+                    '<span class="badge bg-success">$&</span>');
+            }
+            if (result.relevance && result.relevance > 1) {
+                titleHtml = '<i class="bi bi-star-fill text-warning me-1"></i>' + titleHtml;
+            }
+            
+            row.append(`<td>${titleHtml}</td>`);
+            row.append(`<td>${result.size_formatted}</td>`);
+            row.append(`<td><span class="badge bg-success">${result.seeders}</span></td>`);
+            row.append(`<td><span class="badge bg-secondary">${result.leechers}</span></td>`);
+            row.append(`<td>${escapeHtml(result.indexer)}</td>`);
+            
+            // Actions
+            const actions = $('<td>');
+            if (result.magnet_link) {
+                actions.append(`
+                    <button class="btn btn-sm btn-primary me-1" onclick="copyMagnet('${escapeHtml(result.magnet_link)}')" 
+                            title="Copy magnet link">
+                        <i class="bi bi-magnet"></i>
+                    </button>
+                `);
+            }
+            if (result.link) {
+                actions.append(`
+                    <a href="${escapeHtml(result.link)}" target="_blank" 
+                       class="btn btn-sm btn-secondary" title="Open torrent page">
+                        <i class="bi bi-box-arrow-up-right"></i>
+                    </a>
+                `);
+            }
+            
+            row.append(actions);
+            tbody.append(row);
+        });
+    }
+    
+    function showSearchError(message) {
+        $('#searchError').text(message).removeClass('d-none');
+    }
+    
+    function openJackettWeb() {
+        performSearch(currentSearchQuery.split(' ')[0], currentSearchType, currentTitleId);
+    }
+    
+    function copyMagnet(magnetLink) {
+        navigator.clipboard.writeText(magnetLink).then(function() {
+            // Show temporary success message
+            const btn = event.target.closest('button');
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-check"></i>';
+            btn.classList.add('btn-success');
+            btn.classList.remove('btn-primary');
+            
+            setTimeout(() => {
+                btn.innerHTML = originalHtml;
+                btn.classList.remove('btn-success');
+                btn.classList.add('btn-primary');
+            }, 2000);
+        });
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     $(document).ready(function() {

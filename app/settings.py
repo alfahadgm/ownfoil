@@ -29,8 +29,22 @@ def load_settings():
         with open(CONFIG_FILE, 'r') as yaml_file:
             settings = yaml.safe_load(yaml_file)
 
+        # Merge with default settings to ensure all keys exist
+        for key, value in DEFAULT_SETTINGS.items():
+            if key not in settings:
+                settings[key] = value
+            elif isinstance(value, dict):
+                # Merge nested dictionaries
+                for subkey, subvalue in value.items():
+                    if subkey not in settings[key]:
+                        settings[key][subkey] = subvalue
+
         valid_keys = load_keys()
         settings['titles']['valid_keys'] = valid_keys
+
+        # Save the merged settings back
+        with open(CONFIG_FILE, 'w') as yaml_file:
+            yaml.dump(settings, yaml_file)
 
     else:
         settings = DEFAULT_SETTINGS

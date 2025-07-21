@@ -109,6 +109,7 @@ class JackettClient:
     def __init__(self, url: str, api_key: Optional[str] = None):
         self.url = url.rstrip('/')
         self.api_key = api_key
+        self.session = requests.Session()
         
     def test_connection(self) -> Tuple[bool, str]:
         """Test connection to Jackett"""
@@ -119,6 +120,11 @@ class JackettClient:
             if response.status_code == 200:
                 # Check if it's actually Jackett by looking for specific content
                 if 'Jackett' in response.text or 'jackett' in response.text.lower():
+                    # If we have an API key, test the API endpoint
+                    if self.api_key:
+                        api_test = self._test_api_connection()
+                        if not api_test[0]:
+                            return True, f"Connected to Jackett (Web UI accessible, API: {api_test[1]})"
                     return True, "Connected to Jackett"
                 else:
                     return False, "URL is accessible but doesn't appear to be Jackett"
@@ -132,8 +138,32 @@ class JackettClient:
         except Exception as e:
             return False, f"Unexpected error: {str(e)}"
             
+    def _test_api_connection(self) -> Tuple[bool, str]:
+        """Test API connection with API key"""
+        if not self.api_key:
+            return False, "No API key configured"
+            
+        try:
+            # Test the indexers endpoint
+            api_url = f"{self.url}/api/v2.0/indexers/all/results/torznab"
+            params = {
+                'apikey': self.api_key,
+                't': 'caps'
+            }
+            response = self.session.get(api_url, params=params, timeout=5)
+            
+            if response.status_code == 200:
+                return True, "API key valid"
+            elif response.status_code == 401:
+                return False, "Invalid API key"
+            else:
+                return False, f"API test failed: {response.status_code}"
+                
+        except Exception as e:
+            return False, f"API test error: {str(e)}"
+            
     def build_search_url(self, query: str) -> str:
-        """Build a search URL for Jackett"""
+        """Build a search URL for Jackett Web UI"""
         # Remove any trailing /UI/Dashboard or similar paths
         base_url = self.url
         parsed = urlparse(base_url)
@@ -143,6 +173,104 @@ class JackettClient:
         # Build the search URL
         search_path = f"/UI/Dashboard#search={query}&tracker=&category="
         return urljoin(base_url + '/', search_path.lstrip('/'))
+        
+    def search_api(self, query: str, category: Optional[str] = None, 
+                   limit: int = 50) -> Tuple[bool, Any]:
+        """Search using Jackett API
+        
+        Args:
+            query: Search query
+            category: Category filter (e.g., '1000' for Console)
+            limit: Maximum number of results
+            
+        Returns:
+            Tuple of (success, results/error_message)
+        """
+        if not self.api_key:
+            return False, "API key not configured"
+            
+        try:
+            api_url = f"{self.url}/api/v2.0/indexers/all/results/torznab/api"
+            params = {
+                'apikey': self.api_key,
+                't': 'search',
+                'q': query,
+                'limit': limit
+            }
+            
+            if category:
+                params['cat'] = category
+                
+            response = self.session.get(api_url, params=params, timeout=30)
+            
+            if response.status_code == 200:
+                # Parse the XML response
+                results = self._parse_torznab_response(response.text)
+                return True, results
+            elif response.status_code == 401:
+                return False, "Invalid API key"
+            else:
+                return False, f"Search failed: {response.status_code}"
+                
+        except requests.exceptions.Timeout:
+            return False, "Search timeout - request took too long"
+        except Exception as e:
+            logger.error(f"Jackett search error: {e}")
+            return False, f"Search error: {str(e)}"
+            
+    def _parse_torznab_response(self, xml_content: str) -> list:
+        """Parse Torznab XML response into list of results"""
+        results = []
+        
+        try:
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(xml_content)
+            
+            # Find all items in the RSS feed
+            for item in root.findall('.//item'):
+                result = {
+                    'title': item.findtext('title', ''),
+                    'link': item.findtext('link', ''),
+                    'size': 0,
+                    'seeders': 0,
+                    'leechers': 0,
+                    'publish_date': item.findtext('pubDate', ''),
+                    'category': item.findtext('category', ''),
+                    'indexer': '',
+                    'magnet_link': '',
+                    'info_hash': ''
+                }
+                
+                # Parse torznab attributes
+                for attr in item.findall('.//torznab:attr', {'torznab': 'http://torznab.com/schemas/2015/feed'}):
+                    name = attr.get('name')
+                    value = attr.get('value')
+                    
+                    if name == 'size':
+                        result['size'] = int(value) if value else 0
+                    elif name == 'seeders':
+                        result['seeders'] = int(value) if value else 0
+                    elif name == 'peers':
+                        result['leechers'] = int(value) if value else 0
+                    elif name == 'indexer':
+                        result['indexer'] = value
+                    elif name == 'magneturl':
+                        result['magnet_link'] = value
+                    elif name == 'infohash':
+                        result['info_hash'] = value
+                        
+                # Try to get magnet from enclosure if not in attributes
+                if not result['magnet_link']:
+                    enclosure = item.find('enclosure')
+                    if enclosure and enclosure.get('url', '').startswith('magnet:'):
+                        result['magnet_link'] = enclosure.get('url')
+                        
+                results.append(result)
+                
+        except Exception as e:
+            logger.error(f"Error parsing Torznab response: {e}")
+            
+        return results
 
 
 class AutomationManager:

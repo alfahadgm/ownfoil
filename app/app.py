@@ -17,7 +17,7 @@ from auth import *
 from titles import *
 from utils import *
 from library import *
-from automation import AutomationManager
+from automation import AutomationManager, JackettClient
 import titledb
 import os
 
@@ -364,9 +364,24 @@ def test_automation_connection():
     """Test connections to automation services"""
     data = request.json
     service = data.get('service')
+    config = data.get('config', {})
     
     reload_conf()
-    automation_mgr = AutomationManager(app_settings)
+    
+    # If config is provided, use it for testing instead of saved settings
+    if config:
+        test_settings = app_settings.copy()
+        if 'automation' not in test_settings:
+            test_settings['automation'] = {}
+        
+        if service == 'qbittorrent' and config:
+            test_settings['automation']['qbittorrent'] = config
+        elif service == 'jackett' and config:
+            test_settings['automation']['jackett'] = config
+            
+        automation_mgr = AutomationManager(test_settings)
+    else:
+        automation_mgr = AutomationManager(app_settings)
     
     if service == 'qbittorrent':
         success, message = automation_mgr.test_qbittorrent_connection()
@@ -381,6 +396,99 @@ def test_automation_connection():
     return jsonify({
         'success': success,
         'message': message
+    })
+
+@app.post('/api/jackett/search')
+@access_required('admin')
+def jackett_search():
+    """Search for torrents using Jackett API"""
+    data = request.json
+    query = data.get('query', '')
+    search_type = data.get('type', 'base')  # base, update, dlc
+    title_id = data.get('title_id', '')
+    
+    if not query:
+        return jsonify({
+            'success': False,
+            'message': 'Search query is required'
+        }), 400
+        
+    reload_conf()
+    automation_config = app_settings.get('automation', {})
+    jackett_config = automation_config.get('jackett', {})
+    
+    if not jackett_config.get('url'):
+        return jsonify({
+            'success': False,
+            'message': 'Jackett not configured'
+        }), 400
+        
+    # Create Jackett client
+    jackett_client = JackettClient(
+        jackett_config['url'],
+        jackett_config.get('api_key')
+    )
+    
+    # Use category 1000 for console games
+    success, results = jackett_client.search_api(query, category='1000', limit=100)
+    
+    if not success:
+        return jsonify({
+            'success': False,
+            'message': results  # Contains error message
+        }), 500
+        
+    # Filter results based on search type and Nintendo Switch content
+    filtered_results = []
+    for result in results:
+        title = result['title'].lower()
+        
+        # Check if it's a Nintendo Switch game (common patterns)
+        is_switch = any(keyword in title for keyword in ['nsw', 'switch', 'nsp', 'nsz', 'xci', 'xcz'])
+        
+        if not is_switch:
+            continue
+            
+        # Additional filtering based on search type
+        if search_type == 'base':
+            # Skip if it explicitly mentions update/dlc
+            if 'update' in title or 'dlc' in title:
+                continue
+        elif search_type == 'update':
+            # Prefer results with "update" in title
+            if 'update' not in title and 'patch' not in title:
+                result['relevance'] = 0.5
+            else:
+                result['relevance'] = 1.0
+        elif search_type == 'dlc':
+            # Prefer results with "dlc" in title
+            if 'dlc' not in title:
+                result['relevance'] = 0.5
+            else:
+                result['relevance'] = 1.0
+                
+        # Check if title contains the Title ID
+        if title_id and title_id.lower() in title:
+            result['has_title_id'] = True
+            result['relevance'] = result.get('relevance', 1.0) * 1.5
+        else:
+            result['has_title_id'] = False
+            
+        # Format file size
+        if result['size'] > 0:
+            result['size_formatted'] = format_bytes(result['size'])
+        else:
+            result['size_formatted'] = 'Unknown'
+            
+        filtered_results.append(result)
+        
+    # Sort by relevance (if set) and then by seeders
+    filtered_results.sort(key=lambda x: (x.get('relevance', 1.0), x['seeders']), reverse=True)
+    
+    return jsonify({
+        'success': True,
+        'results': filtered_results[:50],  # Limit to top 50 results
+        'total': len(filtered_results)
     })
 
 def allowed_file(filename):
