@@ -429,10 +429,14 @@ def jackett_search():
         jackett_config.get('api_key')
     )
     
+    # Log the search query for debugging
+    logger.info(f"Jackett search: query='{query}', type={search_type}, title_id={title_id}")
+    
     # Use category 1000 for console games
     success, results = jackett_client.search_api(query, category='1000', limit=100)
     
     if not success:
+        logger.error(f"Jackett search failed: {results}")
         return jsonify({
             'success': False,
             'message': results  # Contains error message
