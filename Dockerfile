@@ -11,6 +11,7 @@ RUN mkdir /app
 
 COPY ./app /app
 COPY ./docker/run.sh /app/run.sh
+RUN chmod +x /app/run.sh
 
 COPY requirements.txt /tmp/
 

@@ -20,7 +20,7 @@ logger = logging.getLogger('main')
 Pfs0.Print.silent = True
 
 app_id_regex = r"\[([0-9A-Fa-f]{16})\]"
-version_regex = r"\[v(\d+)\]"
+version_regex = r"\[v?(\d+)\]"  # Match both [v123] and [123] formats
 
 def getDirsAndFiles(path):
     entries = os.listdir(path)
@@ -172,6 +172,16 @@ def identify_file(filepath):
             else:
                 title_id = app_id
             identification = 'cnmt'
+            
+            # Fix for XCI files: if it's an XCI with version 0, it should be BASE
+            if extension.lower() in ('xci', 'xcz') and version == 0:
+                app_type = APP_TYPE_BASE
+                # For base games, app_id and title_id should be the same
+                if app_id.endswith('800'):
+                    # This is likely an update title ID, convert to base
+                    title_id = app_id[:-3] + '000'
+                    app_id = title_id
+                    
         except Exception as e:
             logger.error(f'Could not identify file {filepath} from metadata: {e}. Trying identification with filename...')
             app_id, title_id, app_type, version = identify_file_from_filename(filename)
@@ -187,6 +197,9 @@ def identify_file(filepath):
             logger.error(f'Unable to extract title from filename: {filename}')
             return None
 
+    # Try to extract name from filename for fallback
+    extracted_name = extract_name_from_filename(filename)
+    
     return {
         'filepath': filepath,
         'filedir': filedir,
@@ -198,8 +211,30 @@ def identify_file(filepath):
         'extension': extension,
         'size': get_file_size(filepath),
         'identification': identification,
+        'extracted_name': extracted_name,  # Fallback name from filename
     }
 
+
+def extract_name_from_filename(filename):
+    """Extract game name from filename as fallback when not in database"""
+    # Remove extension
+    name = filename.rsplit('.', 1)[0]
+    
+    # Remove common patterns like [titleid], [v123], (Update), (DLC), etc.
+    name = re.sub(r'\[([0-9A-Fa-f]{16})\]', '', name)  # Remove title ID
+    name = re.sub(r'\[v?\d+\]', '', name)  # Remove version
+    name = re.sub(r'\(Update\)', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\(DLC\)', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\[US\]|\[JP\]|\[EU\]|\[APP\]|\[UPD\]', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'v\d+\.\d+\.\d+', '', name)  # Remove version patterns like v1.0.0
+    
+    # Clean up the result
+    name = name.strip(' -_')
+    
+    # If we still have something meaningful, return it
+    if name and not name.lower().startswith('unknown'):
+        return name
+    return None
 
 def get_game_info(title_id):
     try:

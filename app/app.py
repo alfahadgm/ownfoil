@@ -195,6 +195,19 @@ def index():
         return access_shop_auth()
     return access_shop()
 
+
+@app.route('/missing')
+@access_required('shop')
+def missing():
+    """Display missing content page"""
+    
+    return render_template(
+        'missing.html',
+        title='Missing Content',
+        admin_account_created=admin_account_created()
+    )
+
+
 @app.route('/settings')
 @access_required('admin')
 def settings_page():
@@ -341,6 +354,19 @@ def get_all_titles():
         'games': titles_library
     })
 
+
+@app.route('/api/missing', methods=['GET'])
+@access_required('shop')
+def get_missing_content_endpoint():
+    """Get all missing content"""
+    library_paths = request.args.getlist('library_path')
+    
+    from library import get_missing_content
+    missing = get_missing_content(library_paths if library_paths else None)
+    
+    return jsonify(missing)
+
+
 @app.route('/api/titles/<title_id>', methods=['GET'])
 @access_required('shop')
 def get_title_details(title_id):
@@ -426,12 +452,13 @@ def apply_library_organization_endpoint():
     data = request.json
     changes = data.get('changes', [])
     dry_run = data.get('dry_run', False)
+    remove_empty_folders = data.get('remove_empty_folders', True)  # Default to True for backward compatibility
     
     if not changes:
         return jsonify({'error': 'No changes provided'}), 400
     
     from library import apply_library_organization
-    results = apply_library_organization(changes, dry_run)
+    results = apply_library_organization(changes, dry_run, remove_empty_folders)
     
     # Regenerate library after organization
     if not dry_run and results['success']:
@@ -441,21 +468,32 @@ def apply_library_organization_endpoint():
     return jsonify({
         'results': results,
         'total_success': len(results['success']),
-        'total_errors': len(results['errors'])
+        'total_errors': len(results['errors']),
+        'total_skipped': len(results.get('skipped', []))
     })
 
 
 @app.route('/api/library/duplicates', methods=['GET'])
 @access_required('admin')
 def find_duplicate_updates_endpoint():
-    """Find duplicate update files"""
+    """Find duplicate files"""
     title_id = request.args.get('title_id', None)
+    duplicate_type = request.args.get('type', 'all')  # 'all', 'updates', 'base', 'dlc'
     
-    from library import find_duplicate_updates
-    duplicates = find_duplicate_updates(title_id)
+    from library import find_all_duplicates, find_duplicate_updates
+    
+    if duplicate_type == 'updates':
+        duplicates = find_duplicate_updates(title_id)
+    else:
+        duplicates = find_all_duplicates(title_id)
+        if duplicate_type != 'all':
+            # Filter by type
+            type_filter = {'base': 'Base', 'dlc': 'DLC', 'updates': 'Update'}.get(duplicate_type)
+            if type_filter:
+                duplicates = [d for d in duplicates if d['type'] == type_filter]
     
     # Calculate total size that can be freed
-    total_size = sum(d['size'] for d in duplicates)
+    total_size = sum(d.get('size', 0) for d in duplicates)
     
     return jsonify({
         'duplicates': duplicates,

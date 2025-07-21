@@ -61,11 +61,12 @@ cd app/NSTools/build
 - `app/app.py`: Main Flask application entry point
 - `app/auth.py`: User authentication (Flask-Login)
 - `app/shop.py`: Tinfoil shop generation with encryption
-- `app/library.py`: Game library scanning and management
+- `app/library.py`: Game library scanning and management (includes duplicate detection, organization, missing content)
 - `app/titles.py`: Title identification logic
 - `app/file_watcher.py`: Real-time file monitoring
 - `app/db.py`: SQLAlchemy database models
 - `app/settings.py`: Configuration management
+- `app/templates/missing.html`: Missing content page template
 
 ## Key Features to Understand
 
@@ -74,6 +75,28 @@ cd app/NSTools/build
 3. **Shop Encryption**: Supports RSA/AES encryption for Tinfoil compatibility
 4. **Real-time Updates**: Watchdog monitors directories for file changes
 5. **Title Database**: Integrates with external title databases for game identification
+6. **Missing Content Page**: Shows missing base games, updates, and DLCs at `/missing`
+7. **Duplicate Detection**: Find and remove duplicate game files (older updates, identical files)
+8. **Library Organization**: Reorganize files into structured folders (GameName/BASE, GameName/UPDATES, GameName/DLC)
+
+## New Features Added
+
+### Library Management
+- **Organize Library**: Restructure files into organized folders (Settings → Library → Organize)
+  - Creates GameName/BASE, GameName/UPDATES, GameName/DLC structure
+  - Handles duplicate files gracefully
+  - Cleans up empty directories after organization
+  
+- **Duplicate Detection**: Find and remove duplicate files (Settings → Library → Cleanup)
+  - Detects older update versions
+  - Finds duplicate base games and DLCs (same file size)
+  - Safe deletion with dry-run option
+  
+- **Missing Content Page**: View all missing content at `/missing`
+  - Shows games without base files (orphaned DLC/updates)
+  - Lists games with available updates
+  - Displays missing DLC for owned games
+  - Export missing content list as text file
 
 ## Security Considerations
 

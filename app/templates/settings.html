@@ -788,6 +788,16 @@
                     
                     content += '</tbody></table></div>';
                     
+                    // Add checkbox for removing empty folders
+                    content += `
+                        <div class="form-check mt-3">
+                            <input class="form-check-input" type="checkbox" id="removeEmptyFolders" checked>
+                            <label class="form-check-label" for="removeEmptyFolders">
+                                Remove empty folders after organizing
+                            </label>
+                        </div>
+                    `;
+                    
                     if (result.errors.length > 0) {
                         content += '<div class="alert alert-warning mt-3"><strong>Errors:</strong><ul>';
                         result.errors.forEach(error => {
@@ -813,12 +823,13 @@
     
     function confirmOrganizeLibrary() {
         const changes = $('#confirmOrganizeBtn').data('changes');
+        const removeEmptyFolders = $('#removeEmptyFolders').is(':checked');
         $('#confirmOrganizeBtn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm" role="status"></span> Organizing...');
         
         $.ajax({
             url: '/api/library/organize/apply',
             type: 'POST',
-            data: JSON.stringify({changes: changes, dry_run: false}),
+            data: JSON.stringify({changes: changes, dry_run: false, remove_empty_folders: removeEmptyFolders}),
             contentType: "application/json",
             success: function(result) {
                 let content = `
@@ -853,40 +864,67 @@
     function showCleanupDuplicatesModal() {
         $('#duplicatesPreviewContent').html('<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>');
         $('#cleanupDuplicatesModal').modal('show');
+        $('#confirmCleanupBtn').hide();
         
         $.get('/api/library/duplicates', function(result) {
             let content = '';
             
             if (result.total_files === 0) {
-                content = '<div class="alert alert-info">No duplicate updates found!</div>';
+                content = '<div class="alert alert-info">No duplicate files found! Your library is clean.</div>';
             } else {
                 content = `
                     <div class="alert alert-warning">
-                        <strong>${result.total_files}</strong> duplicate update files found
+                        <strong>${result.total_files}</strong> duplicate files found
                         (${formatBytes(result.total_size)} can be freed)
                     </div>
                     <div class="table-responsive" style="max-height: 400px; overflow-y: auto;">
-                        <table class="table table-sm">
-                            <thead>
+                        <table class="table table-sm table-hover">
+                            <thead class="table-dark sticky-top">
                                 <tr>
+                                    <th>Type</th>
                                     <th>Game</th>
-                                    <th>Version</th>
-                                    <th>Latest</th>
+                                    <th>File to Delete</th>
+                                    <th>Reason</th>
                                     <th>Size</th>
                                 </tr>
                             </thead>
                             <tbody>
                 `;
                 
+                // Group duplicates by game for better readability
+                const groupedDuplicates = {};
                 result.duplicates.forEach(dup => {
-                    content += `
-                        <tr>
-                            <td class="text-break">${dup.title_name}</td>
-                            <td><span class="badge bg-danger">v${dup.version}</span></td>
-                            <td><span class="badge bg-success">v${dup.latest_version}</span></td>
-                            <td>${formatBytes(dup.size)}</td>
-                        </tr>
-                    `;
+                    if (!groupedDuplicates[dup.title_name]) {
+                        groupedDuplicates[dup.title_name] = [];
+                    }
+                    groupedDuplicates[dup.title_name].push(dup);
+                });
+                
+                // Sort games alphabetically
+                const sortedGames = Object.keys(groupedDuplicates).sort();
+                
+                sortedGames.forEach(gameName => {
+                    const gameDups = groupedDuplicates[gameName];
+                    gameDups.forEach((dup, index) => {
+                        const typeColor = dup.type === 'Update' ? 'warning' : (dup.type === 'Base' ? 'danger' : 'info');
+                        const rowClass = index === 0 ? 'border-top border-secondary' : '';
+                        
+                        content += `
+                            <tr class="${rowClass}">
+                                <td><span class="badge bg-${typeColor}">${dup.type}</span></td>
+                                <td class="text-break">${dup.title_name}</td>
+                                <td class="text-break small">
+                                    <span class="text-danger">${dup.filename || dup.filepath}</span>
+                                    ${dup.version !== undefined ? `<br><small class="text-muted">Version: ${dup.version}</small>` : ''}
+                                </td>
+                                <td class="small">
+                                    ${dup.reason}
+                                    ${dup.kept_file ? `<br><small class="text-success">Keeping: ${dup.kept_file}</small>` : ''}
+                                </td>
+                                <td class="text-nowrap">${formatBytes(dup.size)}</td>
+                            </tr>
+                        `;
+                    });
                 });
                 
                 content += '</tbody></table></div>';
@@ -978,7 +1016,7 @@
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="cleanupDuplicatesModalLabel">Clean Duplicate Updates</h5>
+                <h5 class="modal-title" id="cleanupDuplicatesModalLabel">Clean Duplicate Files</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body" id="duplicatesPreviewContent">

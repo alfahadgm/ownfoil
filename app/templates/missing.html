@@ -1,0 +1,314 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% include 'nav.html' %}
+<div id="content" class="container-fluid mt-3">
+    
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="card text-bg-danger">
+                <div class="card-body">
+                    <h5 class="card-title">Missing Base Games</h5>
+                    <p class="card-text display-4" id="missingBaseCount">0</p>
+                    <p class="card-text">DLC/Updates without base game</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-bg-warning">
+                <div class="card-body">
+                    <h5 class="card-title">Missing Updates</h5>
+                    <p class="card-text display-4" id="missingUpdateCount">0</p>
+                    <p class="card-text">Games with newer versions available</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-bg-info">
+                <div class="card-body">
+                    <h5 class="card-title">Missing DLC</h5>
+                    <p class="card-text display-4" id="missingDlcCount">0</p>
+                    <p class="card-text">Games without all available DLC</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter Controls -->
+    <div class="row mb-3">
+        <div class="col-auto">
+            <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#missingBaseSection" aria-expanded="true">
+                <i class="bi bi-controller"></i> Base Games (<span class="missing-base-count">0</span>)
+            </button>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#missingUpdateSection" aria-expanded="true">
+                <i class="bi bi-arrow-up-circle"></i> Updates (<span class="missing-update-count">0</span>)
+            </button>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#missingDlcSection" aria-expanded="true">
+                <i class="bi bi-puzzle"></i> DLC (<span class="missing-dlc-count">0</span>)
+            </button>
+        </div>
+        <div class="col-auto ms-auto">
+            <button class="btn btn-secondary" id="exportBtn">
+                <i class="bi bi-download"></i> Export List
+            </button>
+        </div>
+    </div>
+
+    <!-- Missing Base Games Section -->
+    <div class="collapse show" id="missingBaseSection">
+        <h3 class="mb-3">Missing Base Games</h3>
+        <div class="row g-3" id="missingBaseGrid">
+            <!-- Content loaded dynamically -->
+        </div>
+        <hr class="my-4">
+    </div>
+
+    <!-- Missing Updates Section -->
+    <div class="collapse show" id="missingUpdateSection">
+        <h3 class="mb-3">Missing Updates</h3>
+        <div class="row g-3" id="missingUpdateGrid">
+            <!-- Content loaded dynamically -->
+        </div>
+        <hr class="my-4">
+    </div>
+
+    <!-- Missing DLC Section -->
+    <div class="collapse show" id="missingDlcSection">
+        <h3 class="mb-3">Missing DLC</h3>
+        <div class="row g-3" id="missingDlcGrid">
+            <!-- Content loaded dynamically -->
+        </div>
+    </div>
+
+</div>
+
+<!-- Loading Spinner -->
+<div class="text-center my-5" id="loadingSpinner">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+</div>
+
+<script>
+    let missingData = null;
+
+    function fetchMissingContent() {
+        $('#loadingSpinner').show();
+        $('#content').hide();
+        
+        $.get('/api/missing', function(data) {
+            missingData = data;
+            renderMissingContent(data);
+            $('#loadingSpinner').hide();
+            $('#content').show();
+        }).fail(function() {
+            $('#loadingSpinner').hide();
+            alert('Failed to load missing content data');
+        });
+    }
+
+    function renderMissingContent(data) {
+        // Update summary counts
+        $('#missingBaseCount').text(data.summary.total_missing_base);
+        $('#missingUpdateCount').text(data.summary.total_missing_updates);
+        $('#missingDlcCount').text(data.summary.total_missing_dlc);
+        
+        $('.missing-base-count').text(data.missing_base.length);
+        $('.missing-update-count').text(data.missing_updates.length);
+        $('.missing-dlc-count').text(data.missing_dlc.length);
+        
+        // Render missing base games
+        renderMissingBase(data.missing_base);
+        
+        // Render missing updates
+        renderMissingUpdates(data.missing_updates);
+        
+        // Render missing DLC
+        renderMissingDlc(data.missing_dlc);
+    }
+
+    function renderMissingBase(items) {
+        const grid = $('#missingBaseGrid');
+        grid.empty();
+        
+        if (items.length === 0) {
+            grid.append('<div class="col-12"><p class="text-muted">No missing base games found!</p></div>');
+            return;
+        }
+        
+        items.forEach(item => {
+            const card = $(`
+                <div class="col-md-6 col-lg-4">
+                    <div class="card text-bg-dark h-100">
+                        <img src="${item.bannerUrl || ''}" class="card-img-top" alt="${item.name}" onerror="this.style.display='none'">
+                        <div class="card-body">
+                            <h5 class="card-title">${item.name}</h5>
+                            <p class="card-text">
+                                <small class="text-muted">Title ID: ${item.title_id}</small><br>
+                                ${item.has_updates ? '<span class="badge bg-warning me-1">Has Updates</span>' : ''}
+                                ${item.has_dlcs ? '<span class="badge bg-info">Has DLC</span>' : ''}
+                            </p>
+                            <div class="mt-2">
+                                <strong>Owned files:</strong>
+                                <ul class="small">
+                                    ${item.owned_files.map(f => `<li>${f.filename}</li>`).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `);
+            grid.append(card);
+        });
+    }
+
+    function renderMissingUpdates(items) {
+        const grid = $('#missingUpdateGrid');
+        grid.empty();
+        
+        if (items.length === 0) {
+            grid.append('<div class="col-12"><p class="text-muted">All games are up to date!</p></div>');
+            return;
+        }
+        
+        items.forEach(item => {
+            const card = $(`
+                <div class="col-md-6 col-lg-4">
+                    <div class="card text-bg-dark h-100">
+                        <img src="${item.bannerUrl || ''}" class="card-img-top" alt="${item.name}" onerror="this.style.display='none'">
+                        <div class="card-body">
+                            <h5 class="card-title">${item.name}</h5>
+                            <p class="card-text">
+                                <small class="text-muted">Title ID: ${item.title_id}</small><br>
+                                ${item.has_base ? '<span class="badge bg-success me-1">Has Base</span>' : '<span class="badge bg-danger me-1">No Base</span>'}
+                                <span class="badge bg-secondary">Current: v${item.current_version || 0}</span>
+                                <span class="badge bg-primary">Latest: v${item.latest_version}</span>
+                            </p>
+                            <div class="mt-2">
+                                <strong>Missing versions:</strong>
+                                <ul class="small">
+                                    ${item.missing_versions.map(v => `<li>v${v.version} (${v.release_date})</li>`).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `);
+            grid.append(card);
+        });
+    }
+
+    function renderMissingDlc(items) {
+        const grid = $('#missingDlcGrid');
+        grid.empty();
+        
+        if (items.length === 0) {
+            grid.append('<div class="col-12"><p class="text-muted">All games have complete DLC!</p></div>');
+            return;
+        }
+        
+        items.forEach(item => {
+            const card = $(`
+                <div class="col-md-6 col-lg-4">
+                    <div class="card text-bg-dark h-100">
+                        <img src="${item.bannerUrl || ''}" class="card-img-top" alt="${item.name}" onerror="this.style.display='none'">
+                        <div class="card-body">
+                            <h5 class="card-title">${item.name}</h5>
+                            <p class="card-text">
+                                <small class="text-muted">Title ID: ${item.title_id}</small><br>
+                                <span class="badge bg-info">${item.owned_dlc}/${item.total_dlc} DLC owned</span>
+                            </p>
+                            <div class="mt-2">
+                                <strong>Missing DLC:</strong>
+                                <ul class="small">
+                                    ${item.missing_dlcs.map(d => `<li>${d.name} (${d.app_id})</li>`).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `);
+            grid.append(card);
+        });
+    }
+
+    function exportMissingList() {
+        if (!missingData) return;
+        
+        let text = "OWNFOIL MISSING CONTENT REPORT\n";
+        text += "================================\n\n";
+        text += `Generated: ${new Date().toLocaleString()}\n\n`;
+        
+        text += "SUMMARY\n";
+        text += "-------\n";
+        text += `Missing Base Games: ${missingData.summary.total_missing_base}\n`;
+        text += `Missing Updates: ${missingData.summary.total_missing_updates}\n`;
+        text += `Missing DLC: ${missingData.summary.total_missing_dlc}\n\n`;
+        
+        if (missingData.missing_base.length > 0) {
+            text += "MISSING BASE GAMES\n";
+            text += "------------------\n";
+            missingData.missing_base.forEach(item => {
+                text += `- ${item.name} [${item.title_id}]\n`;
+                text += `  Status: ${item.has_updates ? 'Has Updates' : ''} ${item.has_dlcs ? 'Has DLC' : ''}\n`;
+                text += `  Owned files:\n`;
+                item.owned_files.forEach(f => {
+                    text += `    - ${f.filename}\n`;
+                });
+                text += "\n";
+            });
+        }
+        
+        if (missingData.missing_updates.length > 0) {
+            text += "\nMISSING UPDATES\n";
+            text += "----------------\n";
+            missingData.missing_updates.forEach(item => {
+                text += `- ${item.name} [${item.title_id}]\n`;
+                text += `  Current version: v${item.current_version || 0}\n`;
+                text += `  Latest version: v${item.latest_version}\n`;
+                text += `  Missing versions:\n`;
+                item.missing_versions.forEach(v => {
+                    text += `    - v${v.version} (${v.release_date})\n`;
+                });
+                text += "\n";
+            });
+        }
+        
+        if (missingData.missing_dlc.length > 0) {
+            text += "\nMISSING DLC\n";
+            text += "------------\n";
+            missingData.missing_dlc.forEach(item => {
+                text += `- ${item.name} [${item.title_id}]\n`;
+                text += `  DLC Status: ${item.owned_dlc}/${item.total_dlc} owned\n`;
+                text += `  Missing DLC:\n`;
+                item.missing_dlcs.forEach(d => {
+                    text += `    - ${d.name} [${d.app_id}]\n`;
+                });
+                text += "\n";
+            });
+        }
+        
+        // Create and download the file
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `ownfoil-missing-content-${new Date().toISOString().split('T')[0]}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+    }
+
+    $(document).ready(function() {
+        fetchMissingContent();
+        
+        $('#exportBtn').click(exportMissingList);
+    });
+</script>
+{% endblock %}

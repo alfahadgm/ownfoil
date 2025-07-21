@@ -1,15 +1,30 @@
-# Ownfoil
+# Ownfoil (Enhanced Fork)
 [![Docker Pulls](https://img.shields.io/docker/pulls/a1ex4/ownfoil)](https://hub.docker.com/r/a1ex4/ownfoil)
 [![Docker Image Size (latest semver)](https://img.shields.io/docker/image-size/a1ex4/ownfoil?sort=date&arch=amd64
 )](https://hub.docker.com/r/a1ex4/ownfoil/tags)
 
-Ownfoil is a Nintendo Switch library manager, that will also turn your library into a fully customizable and self-hosted Tinfoil Shop. The goal of this project is to manage your library, identify any missing content (DLCs or updates) and provide a user friendly way to browse your content. Some of the features include:
+> **Note**: This is an enhanced fork of the original [Ownfoil](https://github.com/a1ex4/ownfoil) with additional features for better library management.
 
+Ownfoil is a Nintendo Switch library manager, that will also turn your library into a fully customizable and self-hosted Tinfoil Shop. The goal of this project is to manage your library, identify any missing content (DLCs or updates) and provide a user friendly way to browse your content. 
+
+## Original Features:
  - multi user authentication
  - web interface for configuration
  - web interface for browsing the library
  - content identification using decryption or filename
  - Tinfoil shop customization
+
+## New Features in This Fork:
+ - **📊 Missing Content Page**: Dedicated page showing all missing base games, updates, and DLCs
+ - **🗂️ Library Organization**: Automatically organize files into structured folders (GameName/BASE, GameName/UPDATES, GameName/DLC)
+ - **🔍 Advanced Duplicate Detection**: Find and remove duplicate files with detailed explanations
+   - Identifies older update versions
+   - Detects duplicate base games and DLCs
+   - Shows clear reasons for deletion
+   - Batch cleanup with safety checks
+ - **🧹 Empty Folder Cleanup**: Automatically removes empty directories after file organization
+ - **📤 Export Missing Content**: Download a text report of all missing content
+ - **🎯 Enhanced File Handling**: Better support for files without proper metadata
 
 The project is still in development, expect things to break or change without notice.
 
@@ -99,13 +114,26 @@ This is where you can also upload your `console keys` file to enable content ide
 ## Shop customization
 In the `Settings` page under the `Shop` section is where you customize your Shop, like the message displayed when successfully accessing the shop from Tinfoil or if the shop is private or public.
 
+## Library organization (New Feature)
+In the `Settings` page under the `Library` section, you can:
+- **Organize Library**: Click the "Organize Library" button to automatically restructure your files into folders like `GameName/BASE`, `GameName/UPDATES`, and `GameName/DLC`
+- **Clean Duplicates**: Click the "Clean Duplicates" button to find and remove duplicate files. The tool will show you exactly what will be deleted and why
+
+## Missing Content (New Feature)
+Navigate to the `Missing Content` page from the navigation bar to see:
+- Games where you have DLC or updates but missing the base game
+- Games with available updates that you don't have
+- Games missing DLC content
+- Export the missing content list as a text file for reference
+
 # Roadmap
 Planned feature, in no particular order.
  - Library browser:
-    - [ ] Add "details" view for every content, to display versions etc
+    - [x] Add "details" view for every content, to display versions etc
+    - [x] Missing content page to show what's not in your library
  - Library management:
-    - [ ] Rename and organize library after content identification
-    - [ ] Delete older updates
+    - [x] Rename and organize library after content identification
+    - [x] Delete older updates and duplicate files
     - [ ] Automatic nsp/xci -> nsz conversion
  - Shop customization:
     - [ ] Encrypt shop
