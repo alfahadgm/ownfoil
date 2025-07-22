@@ -100,6 +100,20 @@
 
 </div>
 
+<!-- Active Downloads Section -->
+<div class="mb-4" id="activeDownloadsSection" style="display: none;">
+    <h3 class="mb-3">
+        <i class="bi bi-download"></i> Active Downloads
+        <button class="btn btn-sm btn-secondary float-end" onclick="toggleAutoRefresh()">
+            <i class="bi bi-arrow-clockwise"></i> <span id="autoRefreshText">Auto-refresh: ON</span>
+        </button>
+    </h3>
+    <div class="row g-3" id="activeDownloadsGrid">
+        <!-- Downloads will be loaded here -->
+    </div>
+    <hr class="my-4">
+</div>
+
 <!-- Loading Spinner -->
 <div class="text-center my-5" id="loadingSpinner">
     <div class="spinner-border text-primary" role="status">
@@ -184,6 +198,9 @@
 <script>
     let missingData = null;
     let jackettUrl = localStorage.getItem('jackettUrl') || '';
+    let activeDownloads = new Map(); // Track active downloads by hash
+    let autoRefreshEnabled = true;
+    let refreshInterval = null;
 
     function fetchMissingContent() {
         $('#loadingSpinner').show();
@@ -771,6 +788,16 @@
                 // Show toast notification
                 showNotification('success', `Added "${title}" to qBittorrent`);
                 
+                // Track the download if we got a hash
+                if (result.info_hash) {
+                    activeDownloads.set(result.info_hash, {
+                        name: title,
+                        hash: result.info_hash,
+                        startTime: Date.now()
+                    });
+                    refreshActiveDownloads();
+                }
+                
                 setTimeout(() => {
                     btn.innerHTML = originalHtml;
                     btn.classList.remove('btn-info');
@@ -799,6 +826,128 @@
                 }, 3000);
             }
         });
+    }
+    
+    function refreshActiveDownloads() {
+        $.get('/api/automation/active-downloads', function(result) {
+            if (result.success && result.downloads.length > 0) {
+                $('#activeDownloadsSection').show();
+                renderActiveDownloads(result.downloads);
+            } else {
+                $('#activeDownloadsSection').hide();
+            }
+        });
+    }
+    
+    function renderActiveDownloads(downloads) {
+        const grid = $('#activeDownloadsGrid');
+        grid.empty();
+        
+        downloads.forEach(download => {
+            const progressPercent = Math.round(download.progress);
+            const speedMB = (download.dlspeed / 1024 / 1024).toFixed(2);
+            const downloadedGB = (download.downloaded / 1024 / 1024 / 1024).toFixed(2);
+            const sizeGB = (download.size / 1024 / 1024 / 1024).toFixed(2);
+            const etaFormatted = formatETA(download.eta);
+            
+            const card = $(`
+                <div class="col-md-6 col-lg-4">
+                    <div class="card text-bg-dark">
+                        <div class="card-body">
+                            <h6 class="card-title text-truncate" title="${download.name}">${download.name}</h6>
+                            <div class="progress mb-2" style="height: 25px;">
+                                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                     role="progressbar" 
+                                     style="width: ${progressPercent}%"
+                                     aria-valuenow="${progressPercent}" 
+                                     aria-valuemin="0" 
+                                     aria-valuemax="100">
+                                    ${progressPercent}%
+                                </div>
+                            </div>
+                            <div class="small">
+                                <div class="row">
+                                    <div class="col-6">
+                                        <i class="bi bi-speedometer2"></i> ${speedMB} MB/s
+                                    </div>
+                                    <div class="col-6 text-end">
+                                        <i class="bi bi-clock"></i> ${etaFormatted}
+                                    </div>
+                                </div>
+                                <div class="row mt-1">
+                                    <div class="col-6">
+                                        <i class="bi bi-hdd"></i> ${downloadedGB}/${sizeGB} GB
+                                    </div>
+                                    <div class="col-6 text-end">
+                                        <i class="bi bi-people"></i> ${download.num_seeds}/${download.num_leechs}
+                                    </div>
+                                </div>
+                                <div class="mt-1">
+                                    <span class="badge bg-${getStateColor(download.state)}">${download.state}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `);
+            
+            grid.append(card);
+        });
+    }
+    
+    function formatETA(seconds) {
+        if (seconds >= 8640000) return '∞';
+        
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        
+        if (hours > 0) {
+            return `${hours}h ${minutes}m`;
+        } else if (minutes > 0) {
+            return `${minutes}m`;
+        } else {
+            return `${seconds}s`;
+        }
+    }
+    
+    function getStateColor(state) {
+        const stateLower = state.toLowerCase();
+        if (stateLower.includes('downloading')) return 'primary';
+        if (stateLower.includes('stalled')) return 'warning';
+        if (stateLower.includes('paused')) return 'secondary';
+        if (stateLower.includes('queued')) return 'info';
+        if (stateLower.includes('error') || stateLower.includes('missing')) return 'danger';
+        if (stateLower.includes('checking')) return 'info';
+        if (stateLower.includes('moving')) return 'warning';
+        return 'secondary';
+    }
+    
+    function toggleAutoRefresh() {
+        autoRefreshEnabled = !autoRefreshEnabled;
+        $('#autoRefreshText').text(`Auto-refresh: ${autoRefreshEnabled ? 'ON' : 'OFF'}`);
+        
+        if (autoRefreshEnabled) {
+            startAutoRefresh();
+        } else {
+            stopAutoRefresh();
+        }
+    }
+    
+    function startAutoRefresh() {
+        if (refreshInterval) return;
+        
+        refreshInterval = setInterval(() => {
+            if (activeDownloads.size > 0 || $('#activeDownloadsSection').is(':visible')) {
+                refreshActiveDownloads();
+            }
+        }, 5000); // Refresh every 5 seconds
+    }
+    
+    function stopAutoRefresh() {
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+            refreshInterval = null;
+        }
     }
     
     function showNotification(type, message) {
@@ -848,6 +997,12 @@
                 }
             });
         }
+        
+        // Check for active downloads on load
+        refreshActiveDownloads();
+        
+        // Start auto-refresh
+        startAutoRefresh();
     });
 </script>
 {% endblock %}

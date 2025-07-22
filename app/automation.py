@@ -2,7 +2,7 @@ import os
 import platform
 import logging
 import requests
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 from urllib.parse import urljoin, urlparse
 
 logger = logging.getLogger(__name__)
@@ -103,7 +103,7 @@ class QBittorrentClient:
             return False
             
     def add_torrent(self, urls: str, category: Optional[str] = None, 
-                   save_path: Optional[str] = None, sequential_download: bool = False) -> Tuple[bool, str]:
+                   save_path: Optional[str] = None, sequential_download: bool = False) -> Tuple[bool, str, Optional[str]]:
         """Add torrent(s) to qBittorrent
         
         Args:
@@ -113,10 +113,10 @@ class QBittorrentClient:
             sequential_download: Enable sequential download for streaming
             
         Returns:
-            Tuple of (success, message)
+            Tuple of (success, message, info_hash)
         """
         if not self._sid and not self.login():
-            return False, "Failed to authenticate with qBittorrent"
+            return False, "Failed to authenticate with qBittorrent", None
             
         try:
             data = {
@@ -137,18 +137,93 @@ class QBittorrentClient:
             )
             
             if response.status_code == 200:
+                # Extract hash from magnet link if it's a magnet
+                info_hash = None
+                if urls.startswith('magnet:'):
+                    import re
+                    hash_match = re.search(r'btih:([a-fA-F0-9]{40})', urls)
+                    if hash_match:
+                        info_hash = hash_match.group(1).lower()
+                
                 if response.text == 'Ok.':
-                    return True, "Torrent added successfully"
+                    return True, "Torrent added successfully", info_hash
                 else:
-                    return True, f"Torrent added (response: {response.text})"
+                    return True, f"Torrent added (response: {response.text})", info_hash
             elif response.status_code == 415:
-                return False, "Torrent file is not valid"
+                return False, "Torrent file is not valid", None
             else:
-                return False, f"Failed to add torrent: HTTP {response.status_code}"
+                return False, f"Failed to add torrent: HTTP {response.status_code}", None
                 
         except Exception as e:
             logger.error(f"Failed to add torrent: {e}")
-            return False, f"Error adding torrent: {str(e)}"
+            return False, f"Error adding torrent: {str(e)}", None
+            
+    def get_torrents(self, category: Optional[str] = None, 
+                     hashes: Optional[List[str]] = None) -> Tuple[bool, Any]:
+        """Get list of torrents with optional filters
+        
+        Args:
+            category: Filter by category
+            hashes: Filter by torrent hashes
+            
+        Returns:
+            Tuple of (success, torrents_list/error_message)
+        """
+        try:
+            if not self._sid and not self.login():
+                return False, "Not authenticated"
+                
+            params = {}
+            if category:
+                params['category'] = category
+            if hashes:
+                params['hashes'] = '|'.join(hashes)
+                
+            response = self.session.get(
+                self._get_api_url('torrents/info'),
+                params=params
+            )
+            
+            if response.status_code == 200:
+                return True, response.json()
+            else:
+                return False, f"Failed to get torrents: {response.status_code}"
+                
+        except Exception as e:
+            logger.error(f"Failed to get torrents: {e}")
+            return False, f"Error getting torrents: {str(e)}"
+            
+    def get_torrent_progress(self, info_hash: str) -> Dict[str, Any]:
+        """Get detailed progress information for a specific torrent
+        
+        Args:
+            info_hash: The torrent's info hash
+            
+        Returns:
+            Dict with torrent progress information or empty dict on error
+        """
+        success, torrents = self.get_torrents(hashes=[info_hash])
+        
+        if success and torrents:
+            torrent = torrents[0] if torrents else {}
+            return {
+                'hash': torrent.get('hash', ''),
+                'name': torrent.get('name', ''),
+                'progress': torrent.get('progress', 0) * 100,  # Convert to percentage
+                'state': torrent.get('state', 'unknown'),
+                'eta': torrent.get('eta', 8640000),  # Default to 100 days if unknown
+                'dlspeed': torrent.get('dlspeed', 0),
+                'size': torrent.get('size', 0),
+                'downloaded': torrent.get('downloaded', 0),
+                'uploaded': torrent.get('uploaded', 0),
+                'num_seeds': torrent.get('num_seeds', 0),
+                'num_leechs': torrent.get('num_leechs', 0),
+                'category': torrent.get('category', ''),
+                'save_path': torrent.get('save_path', ''),
+                'completed': torrent.get('progress', 0) >= 1.0
+            }
+        
+        return {}
 
 
 class JackettClient:

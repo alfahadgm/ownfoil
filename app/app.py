@@ -535,7 +535,7 @@ def download_torrent():
     download_path = automation_config.get('processing', {}).get('download_path')
     
     # Add the torrent
-    success, message = qbit_client.add_torrent(
+    success, message, info_hash = qbit_client.add_torrent(
         urls=url_to_add,
         category=category,
         save_path=download_path
@@ -545,13 +545,104 @@ def download_torrent():
         logger.info(f"Added torrent to qBittorrent: {url_to_add[:100]}...")
         return jsonify({
             'success': True,
-            'message': message
+            'message': message,
+            'info_hash': info_hash
         })
     else:
         logger.error(f"Failed to add torrent: {message}")
         return jsonify({
             'success': False,
             'message': message
+        }), 500
+
+@app.get('/api/automation/progress/<info_hash>')
+@access_required('admin')
+def get_download_progress(info_hash):
+    """Get download progress for a specific torrent"""
+    reload_conf()
+    automation_config = app_settings.get('automation', {})
+    qbit_config = automation_config.get('qbittorrent', {})
+    
+    if not qbit_config.get('url'):
+        return jsonify({
+            'success': False,
+            'message': 'qBittorrent not configured'
+        }), 400
+        
+    # Create qBittorrent client
+    from automation import QBittorrentClient
+    qbit_client = QBittorrentClient(
+        qbit_config['url'],
+        qbit_config.get('username', ''),
+        qbit_config.get('password', '')
+    )
+    
+    # Get torrent progress
+    progress_info = qbit_client.get_torrent_progress(info_hash)
+    
+    if progress_info:
+        return jsonify({
+            'success': True,
+            'progress': progress_info
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'message': 'Torrent not found'
+        }), 404
+
+@app.get('/api/automation/active-downloads')
+@access_required('admin')
+def get_active_downloads():
+    """Get all active downloads in the configured category"""
+    reload_conf()
+    automation_config = app_settings.get('automation', {})
+    qbit_config = automation_config.get('qbittorrent', {})
+    
+    if not qbit_config.get('url'):
+        return jsonify({
+            'success': False,
+            'message': 'qBittorrent not configured'
+        }), 400
+        
+    # Create qBittorrent client
+    from automation import QBittorrentClient
+    qbit_client = QBittorrentClient(
+        qbit_config['url'],
+        qbit_config.get('username', ''),
+        qbit_config.get('password', '')
+    )
+    
+    # Get torrents in our category
+    category = qbit_config.get('category', 'nintendo-switch')
+    success, torrents = qbit_client.get_torrents(category=category)
+    
+    if success:
+        # Filter to only active downloads
+        active_downloads = []
+        for torrent in torrents:
+            if torrent.get('progress', 0) < 1.0:  # Not complete
+                active_downloads.append({
+                    'hash': torrent.get('hash', ''),
+                    'name': torrent.get('name', ''),
+                    'progress': torrent.get('progress', 0) * 100,
+                    'state': torrent.get('state', 'unknown'),
+                    'eta': torrent.get('eta', 8640000),
+                    'dlspeed': torrent.get('dlspeed', 0),
+                    'size': torrent.get('size', 0),
+                    'downloaded': torrent.get('downloaded', 0),
+                    'num_seeds': torrent.get('num_seeds', 0),
+                    'num_leechs': torrent.get('num_leechs', 0)
+                })
+                
+        return jsonify({
+            'success': True,
+            'downloads': active_downloads
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'message': 'Failed to get downloads'
         }), 500
 
 @app.post('/api/automation/process-download')
