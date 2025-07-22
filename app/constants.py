@@ -50,7 +50,8 @@ DEFAULT_SETTINGS = {
             "auto_organize": True,
             "use_hardlinks": True,
             "delete_after_process": False,
-            "extract_passwords": ["", "switch", "nintendo"]
+            "extract_passwords": ["", "switch", "nintendo"],
+            "target_library_index": 0
         }
     }
 }

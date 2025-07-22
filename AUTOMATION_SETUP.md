@@ -77,17 +77,52 @@ This guide will help you set up the complete Ownfoil automation stack for automa
 
 ### Automatic Processing
 
+Ownfoil now supports multiple methods for processing completed downloads:
+
+#### Method 1: File Watcher (Default)
 When downloads complete:
 1. **Unpackerr** automatically extracts archives
 2. **Ownfoil** detects new files via file watcher
-3. Files are organized into proper structure:
+3. Files are organized into proper structure
+
+#### Method 2: qBittorrent Webhook (NEW - Recommended)
+Configure qBittorrent to notify Ownfoil when downloads complete:
+
+1. In qBittorrent, go to Settings → Downloads
+2. Enable "Run external program on torrent completion"
+3. Enter this command:
    ```
-   /games/
-   ├── Pokemon Scarlet/
-   │   ├── BASE/
-   │   ├── UPDATES/
-   │   └── DLC/
+   curl -X POST http://ownfoil:8465/api/automation/webhook/qbittorrent -F "%%N=%%N" -F "%%I=%%I" -F "%%F=%%F" -F "%%R=%%R" -F "%%L=%%L"
    ```
+   
+   For Windows (adjust URL as needed):
+   ```
+   curl -X POST http://localhost:8465/api/automation/webhook/qbittorrent -F "%%N=%%N" -F "%%I=%%I" -F "%%F=%%F" -F "%%R=%%R" -F "%%L=%%L"
+   ```
+
+4. The webhook will:
+   - Extract archives if enabled
+   - Identify game type (BASE/UPDATE/DLC)
+   - Move files to your library path
+   - Organize into proper structure:
+     ```
+     /games/
+     ├── Pokemon Scarlet/
+     │   ├── BASE/
+     │   ├── UPDATES/
+     │   └── DLC/
+     ```
+
+#### Method 3: Manual API Call
+You can also manually trigger processing:
+```bash
+curl -X POST http://localhost:8465/api/automation/process-download \
+  -H "Content-Type: application/json" \
+  -d '{
+    "path": "D:\\Downloads\\Torrents\\Completed\\nintendo-switch\\GameFolder",
+    "name": "Game Name"
+  }'
+```
 
 ## 📁 Directory Structure
 
@@ -113,6 +148,7 @@ In Ownfoil Settings → Automation → Processing Options:
 - **Auto Organize**: Organize files into GameName/TYPE structure
 - **Use Hardlinks**: Save disk space (requires same filesystem)
 - **Delete After Process**: Remove source files after processing
+- **Target Library Index**: Which library path to use (0 = first path, 1 = second, etc.)
 
 ### Custom Categories
 
@@ -151,6 +187,40 @@ If not using Docker:
 ## 🪟 Windows Installation
 
 See [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for Windows-specific instructions.
+
+### Windows qBittorrent Webhook Setup
+
+For Windows users with qBittorrent:
+
+1. **Install curl** (if not already installed):
+   - Download from https://curl.se/windows/
+   - Or use Windows Package Manager: `winget install curl`
+
+2. **Configure qBittorrent webhook**:
+   - Go to Settings → Downloads
+   - Enable "Run external program on torrent completion"
+   - Use this command (adjust paths as needed):
+     ```
+     C:\Windows\System32\curl.exe -X POST http://localhost:8465/api/automation/webhook/qbittorrent -F "%%N=%%N" -F "%%I=%%I" -F "%%F=%%F" -F "%%R=%%R" -F "%%L=%%L"
+     ```
+
+3. **Alternative: PowerShell webhook** (if curl is not available):
+   - Create a PowerShell script `webhook.ps1`:
+     ```powershell
+     param($N, $I, $F, $R, $L)
+     $body = @{
+       "%%N" = $N
+       "%%I" = $I
+       "%%F" = $F
+       "%%R" = $R
+       "%%L" = $L
+     }
+     Invoke-WebRequest -Uri "http://localhost:8465/api/automation/webhook/qbittorrent" -Method POST -Body $body
+     ```
+   - In qBittorrent, use:
+     ```
+     powershell.exe -ExecutionPolicy Bypass -File "C:\path\to\webhook.ps1" -N "%%N" -I "%%I" -F "%%F" -R "%%R" -L "%%L"
+     ```
 
 ## 🔍 Troubleshooting
 

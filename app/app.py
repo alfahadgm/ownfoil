@@ -554,6 +554,193 @@ def download_torrent():
             'message': message
         }), 500
 
+@app.post('/api/automation/process-download')
+@access_required('admin')
+def process_download():
+    """Process completed downloads from qBittorrent"""
+    data = request.json
+    torrent_hash = data.get('hash', '')
+    torrent_name = data.get('name', '')
+    torrent_path = data.get('path', '')
+    
+    if not torrent_path:
+        return jsonify({
+            'success': False,
+            'message': 'Download path is required'
+        }), 400
+        
+    reload_conf()
+    automation_config = app_settings.get('automation', {})
+    processing_config = automation_config.get('processing', {})
+    library_paths = app_settings.get('library', {}).get('paths', [])
+    
+    if not library_paths:
+        return jsonify({
+            'success': False,
+            'message': 'No library paths configured'
+        }), 400
+        
+    # Use the configured library path index
+    target_index = processing_config.get('target_library_index', 0)
+    if target_index >= len(library_paths):
+        target_index = 0  # Fallback to first path if index is out of range
+    target_library_path = library_paths[target_index]
+    
+    # Import the game processor
+    from processors.game_processor import SwitchGameProcessor
+    
+    # Create processor instance
+    processor = SwitchGameProcessor({
+        'extract_passwords': processing_config.get('extract_passwords', ['', 'switch', 'nintendo'])
+    })
+    
+    # Process the download directory
+    try:
+        results = processor.process_directory(
+            source_dir=torrent_path,
+            target_dir=target_library_path,
+            auto_extract=processing_config.get('auto_extract', True),
+            auto_organize=processing_config.get('auto_organize', True),
+            use_hardlinks=processing_config.get('use_hardlinks', True)
+        )
+        
+        # Clean up source files if configured
+        if processing_config.get('delete_after_process', False) and results['files_organized'] > 0:
+            import shutil
+            try:
+                if os.path.isdir(torrent_path):
+                    shutil.rmtree(torrent_path)
+                logger.info(f"Cleaned up source directory: {torrent_path}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up source directory: {e}")
+        
+        # Trigger library scan for the target directory
+        watcher.add_directory(target_library_path)
+        
+        return jsonify({
+            'success': True,
+            'message': f"Processed {results['files_organized']} files",
+            'results': results
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to process download: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f"Processing failed: {str(e)}"
+        }), 500
+
+@app.post('/api/automation/webhook/qbittorrent')
+def qbittorrent_webhook():
+    """Webhook endpoint for qBittorrent to call on download completion"""
+    # qBittorrent sends data as form data, not JSON
+    torrent_name = request.form.get('%N', '')  # Torrent name
+    torrent_hash = request.form.get('%I', '')  # Info hash
+    torrent_path = request.form.get('%F', '')  # Content path (single file)
+    torrent_root_path = request.form.get('%R', '')  # Root path (folder)
+    torrent_category = request.form.get('%L', '')  # Category
+    
+    # Use root path if available, otherwise use file path
+    download_path = torrent_root_path if torrent_root_path else torrent_path
+    
+    if not download_path:
+        logger.warning("qBittorrent webhook called without path information")
+        return jsonify({
+            'success': False,
+            'message': 'No path information provided'
+        }), 400
+    
+    logger.info(f"qBittorrent webhook triggered for: {torrent_name} at {download_path}")
+    
+    # Check if this is a Nintendo Switch torrent (by category or file extension)
+    reload_conf()
+    automation_config = app_settings.get('automation', {})
+    expected_category = automation_config.get('qbittorrent', {}).get('category', 'nintendo-switch')
+    
+    # Only process if it's in the right category or has Switch file extensions
+    should_process = False
+    if torrent_category == expected_category:
+        should_process = True
+    else:
+        # Check if the path contains Switch files
+        from constants import ALLOWED_EXTENSIONS
+        import os
+        if os.path.isfile(download_path):
+            if any(download_path.lower().endswith(ext) for ext in ALLOWED_EXTENSIONS):
+                should_process = True
+        elif os.path.isdir(download_path):
+            # Check if directory contains Switch files
+            for root, dirs, files in os.walk(download_path):
+                for file in files:
+                    if any(file.lower().endswith(ext) for ext in ALLOWED_EXTENSIONS):
+                        should_process = True
+                        break
+                if should_process:
+                    break
+    
+    if not should_process:
+        logger.info(f"Skipping non-Switch torrent: {torrent_name}")
+        return jsonify({
+            'success': True,
+            'message': 'Not a Nintendo Switch torrent, skipping'
+        })
+    
+    # Process the download
+    processing_config = automation_config.get('processing', {})
+    library_paths = app_settings.get('library', {}).get('paths', [])
+    
+    if not library_paths:
+        logger.error("No library paths configured")
+        return jsonify({
+            'success': False,
+            'message': 'No library paths configured'
+        }), 500
+    
+    # Use the configured library path index
+    target_index = processing_config.get('target_library_index', 0)
+    if target_index >= len(library_paths):
+        target_index = 0  # Fallback to first path if index is out of range
+    target_library_path = library_paths[target_index]
+    
+    # Import the game processor
+    from processors.game_processor import SwitchGameProcessor
+    
+    # Create processor instance
+    processor = SwitchGameProcessor({
+        'extract_passwords': processing_config.get('extract_passwords', ['', 'switch', 'nintendo'])
+    })
+    
+    # Process the download
+    try:
+        results = processor.process_directory(
+            source_dir=download_path,
+            target_dir=target_library_path,
+            auto_extract=processing_config.get('auto_extract', True),
+            auto_organize=processing_config.get('auto_organize', True),
+            use_hardlinks=processing_config.get('use_hardlinks', True)
+        )
+        
+        logger.info(f"Processed {results['files_organized']} files from {torrent_name}")
+        
+        # Clean up source files if configured
+        if processing_config.get('delete_after_process', False) and results['files_organized'] > 0:
+            # Only delete if we successfully processed files
+            # Note: Be careful with deletion in webhook context
+            logger.info(f"Cleanup requested but skipped for safety in webhook context: {download_path}")
+        
+        return jsonify({
+            'success': True,
+            'message': f"Processed {results['files_organized']} files",
+            'results': results
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to process download {torrent_name}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f"Processing failed: {str(e)}"
+        }), 500
+
 def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ['keys', 'txt']

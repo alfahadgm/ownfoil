@@ -24,17 +24,23 @@ def login():
     """Login to ownfoil and get session"""
     session = requests.Session()
     login_data = {
-        "username": USERNAME,
-        "password": PASSWORD
+        "user": USERNAME,  # Changed from "username" to "user"
+        "password": PASSWORD,
+        "remember": "on"  # Optional, but matches the form
     }
     
-    response = session.post(f"{OWNFOIL_URL}/login", data=login_data)
-    if response.status_code != 200 or "Login" in response.text:
-        print("❌ Failed to login to ownfoil")
-        return None
+    response = session.post(f"{OWNFOIL_URL}/login", data=login_data, allow_redirects=False)
     
-    print("✅ Successfully logged in to ownfoil")
-    return session
+    # Check if login was successful - should redirect to home page
+    if response.status_code == 302 and response.headers.get('Location', '') == '/':
+        print("✅ Successfully logged in to ownfoil")
+        return session
+    else:
+        print("❌ Failed to login to ownfoil")
+        print(f"   Status code: {response.status_code}")
+        if response.status_code == 302:
+            print(f"   Redirect location: {response.headers.get('Location', 'None')}")
+        return None
 
 def test_qbittorrent_connection(session):
     """Test qBittorrent connection"""
