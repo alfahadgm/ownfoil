@@ -398,6 +398,13 @@
                             </label>
                             <div class="form-text text-danger">Warning: This permanently deletes processed files</div>
                         </div>
+                        <div class="mb-3 mt-3">
+                            <label for="targetLibrarySelect" class="form-label">Target Library for Downloads:</label>
+                            <select class="form-select" id="targetLibrarySelect" aria-describedby="targetLibraryHelp">
+                                <!-- Options will be populated dynamically -->
+                            </select>
+                            <div id="targetLibraryHelp" class="form-text">Select which library path will receive downloaded games from qBittorrent webhooks</div>
+                        </div>
                     </div>
                 </div>
                 
@@ -887,7 +894,8 @@
                 auto_extract: $('#autoExtractCheck').is(':checked'),
                 auto_organize: $('#autoOrganizeCheck').is(':checked'),
                 use_hardlinks: $('#useHardlinksCheck').is(':checked'),
-                delete_after_process: $('#deleteAfterProcessCheck').is(':checked')
+                delete_after_process: $('#deleteAfterProcessCheck').is(':checked'),
+                target_library_index: parseInt($('#targetLibrarySelect').val()) || 0
             }
         };
         
@@ -995,6 +1003,17 @@
                         $('#autoOrganizeCheck').prop('checked', automation.processing.auto_organize !== false);
                         $('#useHardlinksCheck').prop('checked', automation.processing.use_hardlinks !== false);
                         $('#deleteAfterProcessCheck').prop('checked', automation.processing.delete_after_process === true);
+                        
+                        // Populate library paths for target selection
+                        $.getJSON("/api/settings/library/paths", function(pathResult) {
+                            if (pathResult.success && pathResult.paths) {
+                                $('#targetLibrarySelect').empty();
+                                pathResult.paths.forEach((path, index) => {
+                                    const selected = (automation.processing.target_library_index || 0) === index ? 'selected' : '';
+                                    $('#targetLibrarySelect').append(`<option value="${index}" ${selected}>Library ${index + 1}: ${path}</option>`);
+                                });
+                            }
+                        });
                     }
                 }
             });

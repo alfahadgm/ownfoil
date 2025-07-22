@@ -703,12 +703,20 @@
                 titleHtml = titleHtml.replace(new RegExp(currentTitleId, 'gi'), 
                     '<span class="badge bg-success ms-1">$&</span>');
             }
-            // Show relevance indicators
-            if (result.relevance >= 2.0) {
-                titleHtml = '<i class="bi bi-star-fill text-warning me-1" title="Best match"></i>' + titleHtml;
+            
+            // Add relevance score badges
+            let relevanceBadge = '';
+            if (result.relevance >= 2.4) {
+                relevanceBadge = '<span class="badge bg-danger me-2" title="Perfect match">BEST</span>';
+            } else if (result.relevance >= 2.0) {
+                relevanceBadge = '<span class="badge bg-warning me-2" title="Excellent match">HIGH</span>';
             } else if (result.relevance >= 1.5) {
-                titleHtml = '<i class="bi bi-star text-warning me-1" title="Good match"></i>' + titleHtml;
+                relevanceBadge = '<span class="badge bg-info me-2" title="Good match">GOOD</span>';
+            } else if (result.relevance >= 1.2) {
+                relevanceBadge = '<span class="badge bg-secondary me-2" title="Possible match">OK</span>';
             }
+            
+            titleHtml = relevanceBadge + titleHtml;
             
             row.append(`<td>${titleHtml}</td>`);
             row.append(`<td>${result.size_formatted}</td>`);

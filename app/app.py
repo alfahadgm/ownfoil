@@ -477,8 +477,8 @@ def jackett_search():
             
         filtered_results.append(result)
         
-    # Sort by relevance (if set) and then by seeders
-    filtered_results.sort(key=lambda x: (x.get('relevance', 1.0), x['seeders']), reverse=True)
+    # Sort by seeders first (most important), then by relevance
+    filtered_results.sort(key=lambda x: (x['seeders'], x.get('relevance', 1.0)), reverse=True)
     
     return jsonify({
         'success': True,
@@ -799,20 +799,30 @@ def qbittorrent_webhook():
             target_dir=target_library_path,
             auto_extract=processing_config.get('auto_extract', True),
             auto_organize=processing_config.get('auto_organize', True),
-            use_hardlinks=processing_config.get('use_hardlinks', True)
+            use_hardlinks=processing_config.get('use_hardlinks', True),
+            delete_after_process=processing_config.get('delete_after_process', False)
         )
         
         logger.info(f"Processed {results['files_organized']} files from {torrent_name}")
+        if results['archives_extracted'] > 0:
+            logger.info(f"Extracted {results['archives_extracted']} archives")
+        if results['archives_deleted'] > 0:
+            logger.info(f"Deleted {results['archives_deleted']} processed archives")
         
-        # Clean up source files if configured
-        if processing_config.get('delete_after_process', False) and results['files_organized'] > 0:
-            # Only delete if we successfully processed files
-            # Note: Be careful with deletion in webhook context
-            logger.info(f"Cleanup requested but skipped for safety in webhook context: {download_path}")
+        # Build detailed response message
+        message_parts = []
+        if results['files_organized'] > 0:
+            message_parts.append(f"Organized {results['files_organized']} files")
+        if results['archives_extracted'] > 0:
+            message_parts.append(f"extracted {results['archives_extracted']} archives")
+        if results['archives_deleted'] > 0:
+            message_parts.append(f"cleaned up {results['archives_deleted']} archives")
+            
+        message = ", ".join(message_parts) if message_parts else "No game files found to process"
         
         return jsonify({
             'success': True,
-            'message': f"Processed {results['files_organized']} files",
+            'message': message,
             'results': results
         })
         

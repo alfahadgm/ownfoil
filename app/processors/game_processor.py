@@ -5,6 +5,7 @@ import platform
 import logging
 import zipfile
 import tarfile
+import tempfile
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from enum import Enum
@@ -175,7 +176,8 @@ class SwitchGameProcessor:
     def process_directory(self, source_dir: str, target_dir: str, 
                          auto_extract: bool = True, 
                          auto_organize: bool = True,
-                         use_hardlinks: bool = True) -> Dict[str, any]:
+                         use_hardlinks: bool = True,
+                         delete_after_process: bool = False) -> Dict[str, any]:
         """Process all game files in a directory"""
         source_path = Path(source_dir)
         target_path = Path(target_dir)
@@ -184,39 +186,108 @@ class SwitchGameProcessor:
             'processed': [],
             'errors': [],
             'archives_extracted': 0,
-            'files_organized': 0
+            'files_organized': 0,
+            'archives_deleted': 0,
+            'temp_dirs_cleaned': 0
         }
         
         if not source_path.exists():
             results['errors'].append(f"Source directory not found: {source_dir}")
             return results
+        
+        # Keep track of processed archives and temporary directories
+        processed_archives = []
+        temp_dirs = []
+        
+        try:
+            # Step 1: Process source directory (could be file or directory)
+            if source_path.is_file():
+                # Single file download - check if it's an archive or game file
+                if self._is_archive(source_path):
+                    if auto_extract:
+                        extracted_files = self._process_archive(source_path, results, temp_dirs)
+                        if extracted_files:
+                            processed_archives.append(source_path)
+                            # Process extracted files
+                            for game_file in extracted_files:
+                                if auto_organize:
+                                    success, message = self._organize_game_file(
+                                        game_file, target_path, use_hardlinks
+                                    )
+                                    if success:
+                                        results['files_organized'] += 1
+                                        results['processed'].append({
+                                            'file': str(game_file),
+                                            'message': message
+                                        })
+                                    else:
+                                        results['errors'].append(f"{game_file.name}: {message}")
+                elif self._is_game_file(source_path):
+                    if auto_organize:
+                        success, message = self._organize_game_file(
+                            source_path, target_path, use_hardlinks
+                        )
+                        if success:
+                            results['files_organized'] += 1
+                            results['processed'].append({
+                                'file': str(source_path),
+                                'message': message
+                            })
+                        else:
+                            results['errors'].append(f"{source_path.name}: {message}")
+            else:
+                # Directory download - process recursively
+                if auto_extract:
+                    # Find and extract all archives first
+                    archives = self._find_archives(source_path)
+                    for archive in archives:
+                        extracted_files = self._process_archive(archive, results, temp_dirs)
+                        if extracted_files:
+                            processed_archives.append(archive)
+                
+                # Find and organize all game files (including from extractions)
+                if auto_organize:
+                    # Search entire source directory and all temp directories
+                    search_dirs = [source_path] + temp_dirs
+                    for search_dir in search_dirs:
+                        game_files = self._find_game_files(search_dir)
+                        for game_file in game_files:
+                            success, message = self._organize_game_file(
+                                game_file, target_path, use_hardlinks
+                            )
+                            if success:
+                                results['files_organized'] += 1
+                                results['processed'].append({
+                                    'file': str(game_file),
+                                    'message': message
+                                })
+                            else:
+                                results['errors'].append(f"{game_file.name}: {message}")
             
-        # Step 1: Extract archives if enabled
-        if auto_extract:
-            archives = self._find_archives(source_path)
-            for archive in archives:
-                success, message = self._extract_archive(archive, source_path)
-                if success:
-                    results['archives_extracted'] += 1
-                    logger.info(f"Extracted: {archive.name}")
-                else:
-                    results['errors'].append(f"{archive.name}: {message}")
-                    
-        # Step 2: Find and organize game files
-        if auto_organize:
-            game_files = self._find_game_files(source_path)
-            for game_file in game_files:
-                success, message = self._organize_game_file(
-                    game_file, target_path, use_hardlinks
-                )
-                if success:
-                    results['files_organized'] += 1
-                    results['processed'].append({
-                        'file': str(game_file),
-                        'message': message
-                    })
-                else:
-                    results['errors'].append(f"{game_file.name}: {message}")
+            # Step 3: Cleanup if configured
+            if delete_after_process and results['files_organized'] > 0:
+                # Delete processed archives
+                for archive in processed_archives:
+                    try:
+                        archive.unlink()
+                        results['archives_deleted'] += 1
+                        logger.info(f"Deleted processed archive: {archive}")
+                    except Exception as e:
+                        logger.error(f"Failed to delete archive {archive}: {e}")
+                
+                # Clean up empty directories in source
+                if source_path.is_dir():
+                    self.clean_empty_directories(str(source_path))
+            
+        finally:
+            # Always clean up temporary directories
+            for temp_dir in temp_dirs:
+                try:
+                    shutil.rmtree(temp_dir)
+                    results['temp_dirs_cleaned'] += 1
+                    logger.info(f"Cleaned up temp directory: {temp_dir}")
+                except Exception as e:
+                    logger.error(f"Failed to clean temp directory {temp_dir}: {e}")
                     
         return results
         
@@ -236,6 +307,44 @@ class SwitchGameProcessor:
         
         for ext in self.GAME_EXTENSIONS:
             game_files.extend(directory.glob(f'**/*{ext}'))
+            
+        return game_files
+        
+    def _is_archive(self, file_path: Path) -> bool:
+        """Check if file is a supported archive"""
+        archive_extensions = {'.zip', '.rar', '.7z', '.tar', '.tar.gz', '.tgz', '.tar.bz2'}
+        return file_path.suffix.lower() in archive_extensions
+        
+    def _is_game_file(self, file_path: Path) -> bool:
+        """Check if file is a Switch game file"""
+        return file_path.suffix.lower() in {f'.{ext}' for ext in self.GAME_EXTENSIONS}
+        
+    def _process_archive(self, archive: Path, results: Dict, temp_dirs: List[Path]) -> List[Path]:
+        """Process an archive file and return list of game files found"""
+        game_files = []
+        
+        # Create temporary directory for extraction
+        temp_dir = Path(tempfile.mkdtemp(prefix=f"ownfoil_extract_{archive.stem}_"))
+        temp_dirs.append(temp_dir)
+        
+        # Extract archive
+        success, message = self.archive_handler.extract(str(archive), str(temp_dir))
+        
+        if success:
+            results['archives_extracted'] += 1
+            logger.info(f"Extracted {archive.name} to temporary directory")
+            
+            # Search for game files in extracted content
+            game_files = self._find_game_files(temp_dir)
+            
+            # Also check for nested archives
+            nested_archives = self._find_archives(temp_dir)
+            for nested_archive in nested_archives:
+                logger.info(f"Found nested archive: {nested_archive.name}")
+                nested_files = self._process_archive(nested_archive, results, temp_dirs)
+                game_files.extend(nested_files)
+        else:
+            results['errors'].append(f"Failed to extract {archive.name}: {message}")
             
         return game_files
         
