@@ -178,6 +178,12 @@
                             <i class="bi bi-trash-fill"></i> Clean Duplicates
                         </button>
                     </div>
+                    
+                    <div class="col-auto">
+                        <button type="button" class="btn btn-info mb-3" onClick='showProcessDirectoryModal()'>
+                            <i class="bi bi-gear-fill"></i> Process Directory
+                        </button>
+                    </div>
                 </div>
 
                 <div class="collapse" id="collapseNewPath">
@@ -1272,6 +1278,137 @@
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     }
+    
+    function showProcessDirectoryModal() {
+        // Populate library paths
+        $.getJSON("/api/settings/library/paths", function(result) {
+            if (result.success && result.paths) {
+                $('#processTargetLibrary').empty();
+                result.paths.forEach((path, index) => {
+                    $('#processTargetLibrary').append(`<option value="${index}">Library ${index + 1}: ${path}</option>`);
+                });
+                
+                // Get current automation settings to pre-select the default target
+                $.getJSON("/api/settings/automation", function(autoResult) {
+                    if (autoResult.success && autoResult.automation && autoResult.automation.processing) {
+                        const targetIndex = autoResult.automation.processing.target_library_index || 0;
+                        $('#processTargetLibrary').val(targetIndex);
+                    }
+                });
+            }
+        });
+        
+        $('#processDirectoryResult').hide();
+        $('#processDirectoryModal').modal('show');
+    }
+    
+    function processDirectory() {
+        const btn = $('#processDirectoryBtn');
+        const spinner = btn.find('.spinner-border');
+        const resultDiv = $('#processDirectoryResult');
+        
+        // Get form values
+        const sourcePath = $('#processDirectoryPath').val().trim();
+        const targetIndex = parseInt($('#processTargetLibrary').val()) || 0;
+        
+        if (!sourcePath) {
+            alert('Please enter a directory path');
+            return;
+        }
+        
+        // Show spinner
+        btn.prop('disabled', true);
+        spinner.removeClass('d-none');
+        resultDiv.hide();
+        
+        // Prepare request data
+        const requestData = {
+            path: sourcePath,
+            target_library_index: targetIndex,
+            auto_extract: $('#processExtractArchives').is(':checked'),
+            auto_organize: $('#processOrganizeFiles').is(':checked'),
+            use_hardlinks: $('#processUseHardlinks').is(':checked'),
+            delete_after_process: $('#processDeleteSource').is(':checked')
+        };
+        
+        $.ajax({
+            url: '/api/automation/process-download',
+            type: 'POST',
+            data: JSON.stringify(requestData),
+            contentType: 'application/json',
+            success: function(result) {
+                let resultHtml = '';
+                
+                if (result.success) {
+                    resultHtml = '<div class="alert alert-success">';
+                    resultHtml += '<h6>Processing Complete!</h6>';
+                    resultHtml += '<ul class="mb-0">';
+                    
+                    if (result.results.files_organized > 0) {
+                        resultHtml += `<li>Organized ${result.results.files_organized} files</li>`;
+                    }
+                    if (result.results.archives_extracted > 0) {
+                        resultHtml += `<li>Extracted ${result.results.archives_extracted} archives</li>`;
+                    }
+                    if (result.results.archives_deleted > 0) {
+                        resultHtml += `<li>Deleted ${result.results.archives_deleted} archives</li>`;
+                    }
+                    if (result.results.temp_dirs_cleaned > 0) {
+                        resultHtml += `<li>Cleaned ${result.results.temp_dirs_cleaned} temporary directories</li>`;
+                    }
+                    
+                    resultHtml += '</ul>';
+                    
+                    if (result.results.errors && result.results.errors.length > 0) {
+                        resultHtml += '<hr><h6>Errors:</h6><ul class="text-danger mb-0">';
+                        result.results.errors.forEach(error => {
+                            resultHtml += `<li>${error}</li>`;
+                        });
+                        resultHtml += '</ul>';
+                    }
+                    
+                    resultHtml += '</div>';
+                    
+                    // Show processed files details
+                    if (result.results.processed && result.results.processed.length > 0) {
+                        resultHtml += '<div class="alert alert-info">';
+                        resultHtml += '<h6>Processed Files:</h6>';
+                        resultHtml += '<div class="table-responsive" style="max-height: 200px; overflow-y: auto;">';
+                        resultHtml += '<table class="table table-sm"><tbody>';
+                        result.results.processed.forEach(item => {
+                            const filename = item.file.split(/[/\\]/).pop();
+                            resultHtml += `<tr><td class="text-break">${filename}</td><td class="small text-muted">${item.message}</td></tr>`;
+                        });
+                        resultHtml += '</tbody></table></div></div>';
+                    }
+                } else {
+                    resultHtml = `<div class="alert alert-danger">Error: ${result.message}</div>`;
+                }
+                
+                resultDiv.html(resultHtml).show();
+                
+                // Reset button
+                btn.prop('disabled', false);
+                spinner.addClass('d-none');
+                
+                // If successful, suggest library scan
+                if (result.success && result.results.files_organized > 0) {
+                    setTimeout(() => {
+                        if (confirm('Processing complete! Would you like to scan the library now?')) {
+                            scanLibrary();
+                            $('#processDirectoryModal').modal('hide');
+                        }
+                    }, 1000);
+                }
+            },
+            error: function(xhr) {
+                const errorMsg = xhr.responseJSON ? xhr.responseJSON.message : 'Failed to process directory';
+                resultDiv.html(`<div class="alert alert-danger">Error: ${errorMsg}</div>`).show();
+                btn.prop('disabled', false);
+                spinner.addClass('d-none');
+            }
+        });
+    }
 </script>
 
 <!-- Organize Library Modal -->
@@ -1307,6 +1444,85 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-danger" id="confirmCleanupBtn" onclick="confirmCleanupDuplicates()" style="display:none;">Delete Duplicates</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Process Directory Modal -->
+<div class="modal fade" id="processDirectoryModal" tabindex="-1" aria-labelledby="processDirectoryModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="processDirectoryModalLabel">Process Downloaded Games</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <strong>Manual Game Processing</strong><br>
+                    Use this to manually process downloaded Switch games from your download directory.
+                    This will extract archives and organize games into your library.
+                </div>
+                
+                <div class="mb-3">
+                    <label for="processDirectoryPath" class="form-label">Directory Path:</label>
+                    <input type="text" class="form-control" id="processDirectoryPath" 
+                           placeholder="D:\Downloads\Torrents\Completed\nintendo-switch"
+                           aria-describedby="processDirectoryHelp">
+                    <div id="processDirectoryHelp" class="form-text">
+                        Enter the full path to the directory containing downloaded Switch games
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <label for="processTargetLibrary" class="form-label">Target Library:</label>
+                    <select class="form-select" id="processTargetLibrary">
+                        <!-- Will be populated with library paths -->
+                    </select>
+                </div>
+                
+                <!-- Processing options -->
+                <div class="card mb-3">
+                    <div class="card-header">Processing Options</div>
+                    <div class="card-body">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="processExtractArchives" checked>
+                            <label class="form-check-label" for="processExtractArchives">
+                                Extract archives (RAR, ZIP, 7Z)
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="processOrganizeFiles" checked>
+                            <label class="form-check-label" for="processOrganizeFiles">
+                                Organize into GameName/TYPE structure
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="processUseHardlinks" checked>
+                            <label class="form-check-label" for="processUseHardlinks">
+                                Use hardlinks when possible
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="processDeleteSource">
+                            <label class="form-check-label" for="processDeleteSource">
+                                Delete source files after processing
+                            </label>
+                            <div class="form-text text-danger">Warning: This will permanently delete the source files</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="processDirectoryResult" style="display:none;">
+                    <!-- Results will be shown here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="processDirectoryBtn" onclick="processDirectory()">
+                    <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+                    Process Directory
+                </button>
             </div>
         </div>
     </div>

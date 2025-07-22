@@ -662,8 +662,8 @@ def process_download():
             'message': 'No library paths configured'
         }), 400
         
-    # Use the configured library path index
-    target_index = processing_config.get('target_library_index', 0)
+    # Use target_library_index from request if provided, otherwise use configured default
+    target_index = data.get('target_library_index', processing_config.get('target_library_index', 0))
     if target_index >= len(library_paths):
         target_index = 0  # Fallback to first path if index is out of range
     target_library_path = library_paths[target_index]
@@ -676,32 +676,40 @@ def process_download():
         'extract_passwords': processing_config.get('extract_passwords', ['', 'switch', 'nintendo'])
     })
     
+    # Use processing options from request if provided, otherwise use configured defaults
+    auto_extract = data.get('auto_extract', processing_config.get('auto_extract', True))
+    auto_organize = data.get('auto_organize', processing_config.get('auto_organize', True))
+    use_hardlinks = data.get('use_hardlinks', processing_config.get('use_hardlinks', True))
+    delete_after_process = data.get('delete_after_process', processing_config.get('delete_after_process', False))
+    
     # Process the download directory
     try:
         results = processor.process_directory(
             source_dir=torrent_path,
             target_dir=target_library_path,
-            auto_extract=processing_config.get('auto_extract', True),
-            auto_organize=processing_config.get('auto_organize', True),
-            use_hardlinks=processing_config.get('use_hardlinks', True)
+            auto_extract=auto_extract,
+            auto_organize=auto_organize,
+            use_hardlinks=use_hardlinks,
+            delete_after_process=delete_after_process
         )
-        
-        # Clean up source files if configured
-        if processing_config.get('delete_after_process', False) and results['files_organized'] > 0:
-            import shutil
-            try:
-                if os.path.isdir(torrent_path):
-                    shutil.rmtree(torrent_path)
-                logger.info(f"Cleaned up source directory: {torrent_path}")
-            except Exception as e:
-                logger.warning(f"Failed to clean up source directory: {e}")
         
         # Trigger library scan for the target directory
         watcher.add_directory(target_library_path)
         
+        # Build response message
+        message_parts = []
+        if results['files_organized'] > 0:
+            message_parts.append(f"Organized {results['files_organized']} files")
+        if results['archives_extracted'] > 0:
+            message_parts.append(f"extracted {results['archives_extracted']} archives")
+        if results['archives_deleted'] > 0:
+            message_parts.append(f"cleaned up {results['archives_deleted']} archives")
+            
+        message = ", ".join(message_parts) if message_parts else "No game files found to process"
+        
         return jsonify({
             'success': True,
-            'message': f"Processed {results['files_organized']} files",
+            'message': message,
             'results': results
         })
         
