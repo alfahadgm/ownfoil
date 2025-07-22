@@ -85,9 +85,11 @@ def generate_library():
     titles = get_all_titles_from_db()
     games_info = []
     for title in titles:
-        has_none_value = any(value is None for value in title.values())
-        if has_none_value:
-            logger.warning(f'File contains None value, it will be skipped: {title}')
+        # Check only critical fields, version can be None for base games and DLC
+        critical_fields = ['filepath', 'title_id', 'app_id', 'type']
+        has_critical_none = any(title.get(field) is None for field in critical_fields)
+        if has_critical_none:
+            logger.warning(f'File contains None in critical fields, it will be skipped: {title}')
             continue
         if title['type'] == APP_TYPE_UPD:
             continue
