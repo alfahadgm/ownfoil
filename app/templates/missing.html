@@ -38,13 +38,16 @@
     <!-- Search Tips -->
     <div class="alert alert-info alert-dismissible fade show mb-3" role="alert">
         <h6 class="alert-heading"><i class="bi bi-lightbulb"></i> Search Tips</h6>
-        <p class="mb-0">Searches now use simplified queries for better results. When searching:</p>
+        <p class="mb-0">Smart Search now shows more results with simplified queries:</p>
         <ul class="mb-0">
-            <li>Base games: Searches for just the game name</li>
-            <li>Updates: Searches for game name + "update"</li>
-            <li>DLC: Searches for game name + "DLC"</li>
+            <li><strong>Base games:</strong> Shows all results for the game name</li>
+            <li><strong>Updates:</strong> Shows all results for "game name update"</li>
+            <li><strong>DLC:</strong> Shows all results for "game name DLC"</li>
         </ul>
-        <small>After searching, look for the Title ID in the torrent filenames or descriptions to find the correct content.</small>
+        <small class="d-block mt-2">
+            <i class="bi bi-star-fill text-warning"></i> Results with matching Title IDs are highlighted and shown first<br>
+            <i class="bi bi-info-circle"></i> All console game results are shown - look for NSP/NSZ/XCI files for Switch content
+        </small>
         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
     </div>
 
@@ -170,9 +173,9 @@
                             <i class="bi bi-info-circle"></i> Click the download button to send torrents directly to qBittorrent
                         </div>
                     </div>
-                    <div class="table-responsive">
+                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
                         <table class="table table-hover">
-                            <thead>
+                            <thead class="sticky-top bg-dark">
                                 <tr>
                                     <th>Title</th>
                                     <th>Size</th>
@@ -676,7 +679,7 @@
     
     function displaySearchResults(results, total) {
         $('#searchResults').removeClass('d-none');
-        $('#searchResultCount').text(`Found ${total} results (showing top ${results.length})`);
+        $('#searchResultCount').html(`Found <strong>${total}</strong> results (showing <strong>${results.length}</strong> most relevant)`);
         
         const tbody = $('#searchResultsBody');
         tbody.empty();
@@ -686,17 +689,25 @@
             return;
         }
         
-        results.forEach(result => {
+        results.forEach((result, index) => {
             const row = $('<tr>');
+            
+            // Add visual separation for lower relevance results
+            if (index > 0 && result.relevance < 1.5 && results[index-1].relevance >= 1.5) {
+                tbody.append('<tr><td colspan="6" class="text-center text-muted py-1"><small>--- Other Results ---</small></td></tr>');
+            }
             
             // Title with highlights
             let titleHtml = escapeHtml(result.title);
             if (result.has_title_id) {
                 titleHtml = titleHtml.replace(new RegExp(currentTitleId, 'gi'), 
-                    '<span class="badge bg-success">$&</span>');
+                    '<span class="badge bg-success ms-1">$&</span>');
             }
-            if (result.relevance && result.relevance > 1) {
-                titleHtml = '<i class="bi bi-star-fill text-warning me-1"></i>' + titleHtml;
+            // Show relevance indicators
+            if (result.relevance >= 2.0) {
+                titleHtml = '<i class="bi bi-star-fill text-warning me-1" title="Best match"></i>' + titleHtml;
+            } else if (result.relevance >= 1.5) {
+                titleHtml = '<i class="bi bi-star text-warning me-1" title="Good match"></i>' + titleHtml;
             }
             
             row.append(`<td>${titleHtml}</td>`);

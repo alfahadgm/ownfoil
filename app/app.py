@@ -433,7 +433,7 @@ def jackett_search():
     logger.info(f"Jackett search: query='{query}', type={search_type}, title_id={title_id}")
     
     # Use category 1000 for console games
-    success, results = jackett_client.search_api(query, category='1000', limit=100)
+    success, results = jackett_client.search_api(query, category='1000', limit=200)
     
     if not success:
         logger.error(f"Jackett search failed: {results}")
@@ -442,39 +442,30 @@ def jackett_search():
             'message': results  # Contains error message
         }), 500
         
-    # Filter results based on search type and Nintendo Switch content
+    # Process all results without heavy filtering
     filtered_results = []
     for result in results:
         title = result['title'].lower()
         
-        # Check if it's a Nintendo Switch game (common patterns)
-        is_switch = any(keyword in title for keyword in ['nsw', 'switch', 'nsp', 'nsz', 'xci', 'xcz'])
+        # Don't filter out results, just add relevance scoring
+        result['relevance'] = 1.0
         
-        if not is_switch:
-            continue
+        # Boost relevance for Nintendo Switch content
+        if any(keyword in title for keyword in ['nsw', 'switch', 'nsp', 'nsz', 'xci', 'xcz']):
+            result['relevance'] *= 1.2
             
-        # Additional filtering based on search type
-        if search_type == 'base':
-            # Skip if it explicitly mentions update/dlc
-            if 'update' in title or 'dlc' in title:
-                continue
-        elif search_type == 'update':
-            # Prefer results with "update" in title
-            if 'update' not in title and 'patch' not in title:
-                result['relevance'] = 0.5
-            else:
-                result['relevance'] = 1.0
+        # Relevance scoring based on search type (but don't exclude)
+        if search_type == 'update':
+            if 'update' in title or 'patch' in title:
+                result['relevance'] *= 1.5
         elif search_type == 'dlc':
-            # Prefer results with "dlc" in title
-            if 'dlc' not in title:
-                result['relevance'] = 0.5
-            else:
-                result['relevance'] = 1.0
+            if 'dlc' in title:
+                result['relevance'] *= 1.5
                 
-        # Check if title contains the Title ID
+        # Check if title contains the Title ID - big relevance boost
         if title_id and title_id.lower() in title:
             result['has_title_id'] = True
-            result['relevance'] = result.get('relevance', 1.0) * 1.5
+            result['relevance'] *= 2.0
         else:
             result['has_title_id'] = False
             
@@ -491,7 +482,7 @@ def jackett_search():
     
     return jsonify({
         'success': True,
-        'results': filtered_results[:50],  # Limit to top 50 results
+        'results': filtered_results[:150],  # Show more results
         'total': len(filtered_results)
     })
 
