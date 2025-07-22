@@ -324,7 +324,7 @@ class JackettClient:
             if category:
                 params['cat'] = category
                 
-            response = self.session.get(api_url, params=params, timeout=30)
+            response = self.session.get(api_url, params=params, timeout=60)
             
             if response.status_code == 200:
                 # Parse the XML response

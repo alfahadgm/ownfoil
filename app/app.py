@@ -433,7 +433,7 @@ def jackett_search():
     logger.info(f"Jackett search: query='{query}', type={search_type}, title_id={title_id}")
     
     # Use category 1000 for console games
-    success, results = jackett_client.search_api(query, category='1000', limit=200)
+    success, results = jackett_client.search_api(query, category='1000', limit=150)
     
     if not success:
         logger.error(f"Jackett search failed: {results}")
@@ -482,7 +482,7 @@ def jackett_search():
     
     return jsonify({
         'success': True,
-        'results': filtered_results[:150],  # Show more results
+        'results': filtered_results[:100],  # Balanced limit for performance
         'total': len(filtered_results)
     })
 
