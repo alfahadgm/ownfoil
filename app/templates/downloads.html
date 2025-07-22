@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% include 'nav.html' %}
+<div id="content" class="container-fluid mt-3">
+    
+    <!-- Downloads Header -->
+    <div class="row mb-4">
+        <div class="col">
+            <h2><i class="bi bi-cloud-download"></i> Active Downloads</h2>
+            <p class="text-muted">Monitor your qBittorrent downloads</p>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" id="refreshBtn">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+            </button>
+            <div class="form-check form-switch d-inline-block ms-3">
+                <input class="form-check-input" type="checkbox" id="autoRefresh" checked>
+                <label class="form-check-label" for="autoRefresh">
+                    Auto-refresh (5s)
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Status Alert -->
+    <div id="statusAlert" class="alert alert-info" style="display: none;"></div>
+    <div id="errorAlert" class="alert alert-danger" style="display: none;"></div>
+
+    <!-- Downloads Section -->
+    <div id="downloadsSection">
+        <!-- Loading Spinner -->
+        <div id="loadingSpinner" class="text-center py-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-2">Loading downloads...</p>
+        </div>
+
+        <!-- Downloads List -->
+        <div id="downloadsList" style="display: none;">
+            <!-- Content will be populated here -->
+        </div>
+
+        <!-- No Downloads -->
+        <div id="noDownloads" class="alert alert-info text-center" style="display: none;">
+            <i class="bi bi-info-circle"></i> No active downloads. 
+            <a href="/search" class="alert-link">Search for games</a> to start downloading.
+        </div>
+    </div>
+</div>
+
+<!-- Process Download Modal -->
+<div class="modal fade" id="processModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Process Download</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="processModalContent">
+                    <p>Process this completed download?</p>
+                    <p class="text-muted mb-0" id="processFileName"></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirmProcessBtn">Process</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    let refreshInterval;
+    let isRefreshing = false;
+    let currentDownloads = {};
+
+    // Initialize
+    loadDownloads();
+    startAutoRefresh();
+
+    // Event handlers
+    $('#refreshBtn').on('click', loadDownloads);
+    
+    $('#autoRefresh').on('change', function() {
+        if ($(this).is(':checked')) {
+            startAutoRefresh();
+        } else {
+            stopAutoRefresh();
+        }
+    });
+
+    function startAutoRefresh() {
+        refreshInterval = setInterval(loadDownloads, 5000);
+    }
+
+    function stopAutoRefresh() {
+        if (refreshInterval) {
+            clearInterval(refreshInterval);
+            refreshInterval = null;
+        }
+    }
+
+    function loadDownloads() {
+        if (isRefreshing) return;
+        isRefreshing = true;
+
+        $('#errorAlert').hide();
+        
+        $.ajax({
+            url: '/api/automation/active-downloads',
+            method: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    currentDownloads = {};
+                    response.downloads.forEach(dl => {
+                        currentDownloads[dl.hash] = dl;
+                    });
+                    displayDownloads(response.downloads);
+                } else {
+                    showError(response.message || 'Failed to load downloads');
+                }
+            },
+            error: function(xhr) {
+                showError('Failed to connect to qBittorrent. Please check your configuration.');
+                $('#downloadsList').hide();
+                $('#noDownloads').hide();
+            },
+            complete: function() {
+                isRefreshing = false;
+                $('#loadingSpinner').hide();
+            }
+        });
+    }
+
+    function displayDownloads(downloads) {
+        const container = $('#downloadsList');
+        container.empty();
+
+        if (downloads.length === 0) {
+            container.hide();
+            $('#noDownloads').show();
+            return;
+        }
+
+        $('#noDownloads').hide();
+        
+        downloads.forEach(function(dl) {
+            const progressPercent = Math.round(dl.progress);
+            const progressClass = getProgressClass(dl.state);
+            const stateIcon = getStateIcon(dl.state);
+            const eta = formatETA(dl.eta);
+            const speed = formatBytes(dl.dlspeed) + '/s';
+            
+            const card = $(`
+                <div class="card mb-3" data-hash="${dl.hash}">
+                    <div class="card-body">
+                        <div class="row align-items-center">
+                            <div class="col-md-6">
+                                <h5 class="card-title mb-1">
+                                    ${stateIcon} ${escapeHtml(dl.name)}
+                                </h5>
+                                <p class="text-muted mb-2">
+                                    ${formatBytes(dl.downloaded)} / ${formatBytes(dl.size)} 
+                                    <span class="text-success">↓ ${speed}</span>
+                                    <span class="text-info ms-2">${dl.num_seeds} seeds, ${dl.num_leechs} peers</span>
+                                </p>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="progress mb-2" style="height: 20px;">
+                                    <div class="progress-bar ${progressClass}" role="progressbar" 
+                                         style="width: ${progressPercent}%"
+                                         aria-valuenow="${progressPercent}" 
+                                         aria-valuemin="0" 
+                                         aria-valuemax="100">
+                                        ${progressPercent}%
+                                    </div>
+                                </div>
+                                <small class="text-muted">ETA: ${eta}</small>
+                            </div>
+                            <div class="col-md-2 text-end">
+                                ${getActionButtons(dl)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `);
+            
+            container.append(card);
+        });
+        
+        container.show();
+    }
+
+    function getProgressClass(state) {
+        switch(state) {
+            case 'downloading':
+            case 'forcedDL':
+                return 'progress-bar-striped progress-bar-animated';
+            case 'stalledDL':
+            case 'queuedDL':
+                return 'bg-warning';
+            case 'pausedDL':
+                return 'bg-secondary';
+            case 'error':
+            case 'missingFiles':
+                return 'bg-danger';
+            default:
+                return '';
+        }
+    }
+
+    function getStateIcon(state) {
+        switch(state) {
+            case 'downloading':
+            case 'forcedDL':
+                return '<i class="bi bi-cloud-download text-primary"></i>';
+            case 'stalledDL':
+                return '<i class="bi bi-exclamation-triangle text-warning"></i>';
+            case 'pausedDL':
+                return '<i class="bi bi-pause-circle text-secondary"></i>';
+            case 'queuedDL':
+                return '<i class="bi bi-clock text-info"></i>';
+            case 'error':
+            case 'missingFiles':
+                return '<i class="bi bi-x-circle text-danger"></i>';
+            default:
+                return '<i class="bi bi-question-circle"></i>';
+        }
+    }
+
+    function getActionButtons(dl) {
+        // For now, just show state - can add pause/resume/delete later
+        let stateText = '';
+        switch(dl.state) {
+            case 'downloading':
+                stateText = 'Downloading';
+                break;
+            case 'stalledDL':
+                stateText = 'Stalled';
+                break;
+            case 'pausedDL':
+                stateText = 'Paused';
+                break;
+            case 'queuedDL':
+                stateText = 'Queued';
+                break;
+            case 'error':
+                stateText = 'Error';
+                break;
+            default:
+                stateText = dl.state;
+        }
+        
+        return `<span class="badge bg-secondary">${stateText}</span>`;
+    }
+
+    function formatETA(seconds) {
+        if (seconds >= 8640000) return '∞';
+        
+        const hours = Math.floor(seconds / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+        
+        if (hours > 0) {
+            return `${hours}h ${minutes}m`;
+        } else if (minutes > 0) {
+            return `${minutes}m`;
+        } else {
+            return `${seconds}s`;
+        }
+    }
+
+    function formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+        
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function showError(message) {
+        $('#errorAlert').text(message).show();
+    }
+
+    function escapeHtml(text) {
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
+    // Clean up on page unload
+    $(window).on('beforeunload', function() {
+        stopAutoRefresh();
+    });
+});
+</script>
+
+{% endblock %}

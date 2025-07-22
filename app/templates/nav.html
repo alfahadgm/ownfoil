@@ -10,6 +10,14 @@
                 <li class="nav-item">
                     <a class="nav-link{% if title == 'Library' %} active" aria-current="page"{% else %}"{% endif %} href="/">Library</a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link{% if title == 'Search' %} active" aria-current="page"{% else %}"{% endif %}" href="/search">Search</a>
+                </li>
+                {% if current_user.is_admin %}
+                <li class="nav-item">
+                    <a class="nav-link{% if title == 'Downloads' %} active" aria-current="page"{% else %}"{% endif %}" href="/downloads">Downloads</a>
+                </li>
+                {% endif %}
                 {% if current_user.is_admin or admin_account_created == false %}
                 <li class="nav-item">
                     <a class="nav-link{% if title == 'Settings' %} active" aria-current="page"{% else %}"{% endif %}" href="/settings">Settings</a>

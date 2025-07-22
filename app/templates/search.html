@@ -1,0 +1,306 @@
+{% extends "base.html" %}
+
+{% block content %}
+{% include 'nav.html' %}
+<div id="content" class="container-fluid mt-3">
+    
+    <!-- Search Header -->
+    <div class="row mb-4">
+        <div class="col">
+            <h2><i class="bi bi-search"></i> Search Games</h2>
+            <p class="text-muted">Search for Nintendo Switch games using Jackett indexers</p>
+        </div>
+    </div>
+
+    <!-- Search Tips -->
+    <div class="alert alert-info alert-dismissible fade show mb-4" role="alert">
+        <h6 class="alert-heading"><i class="bi bi-lightbulb"></i> Search Tips</h6>
+        <ul class="mb-0">
+            <li>Enter the game name to search across all configured Jackett indexers</li>
+            <li>Use the type filter to narrow results (Base Game, Update, or DLC)</li>
+            <li>Optionally add a Title ID for more precise matching</li>
+            <li>Results with matching Title IDs will be highlighted with <i class="bi bi-star-fill text-warning"></i></li>
+        </ul>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+
+    <!-- Search Form -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <form id="searchForm">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label for="searchQuery" class="form-label">Game Name</label>
+                        <input type="text" class="form-control" id="searchQuery" placeholder="Enter game name..." required>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="searchType" class="form-label">Type</label>
+                        <select class="form-select" id="searchType">
+                            <option value="base">Base Game</option>
+                            <option value="update">Update</option>
+                            <option value="dlc">DLC</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="titleId" class="form-label">Title ID (Optional)</label>
+                        <input type="text" class="form-control" id="titleId" placeholder="0100000000010000" maxlength="16">
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col">
+                        <button type="submit" class="btn btn-primary" id="searchBtn">
+                            <i class="bi bi-search"></i> Search
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="clearBtn">
+                            <i class="bi bi-x-circle"></i> Clear
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div id="resultsSection" style="display: none;">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4>Search Results</h4>
+            <span class="text-muted" id="resultCount"></span>
+        </div>
+        
+        <!-- Loading Spinner -->
+        <div id="loadingSpinner" class="text-center py-5" style="display: none;">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Searching...</span>
+            </div>
+            <p class="mt-2">Searching indexers...</p>
+        </div>
+
+        <!-- Error Alert -->
+        <div id="errorAlert" class="alert alert-danger" style="display: none;"></div>
+
+        <!-- Results Table -->
+        <div class="table-responsive">
+            <table class="table table-hover" id="resultsTable" style="display: none;">
+                <thead>
+                    <tr>
+                        <th>Title</th>
+                        <th>Size</th>
+                        <th>Seeds</th>
+                        <th>Peers</th>
+                        <th>Tracker</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="resultsBody">
+                    <!-- Results will be populated here -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- No Results -->
+        <div id="noResults" class="alert alert-warning text-center" style="display: none;">
+            <i class="bi bi-exclamation-triangle"></i> No results found. Try adjusting your search terms.
+        </div>
+    </div>
+</div>
+
+<!-- Download Progress Modal -->
+<div class="modal fade" id="downloadModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Adding to Downloads</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="downloadModalContent">
+                    <!-- Content will be updated dynamically -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <a href="/downloads" class="btn btn-primary">View Downloads</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    let searchTimeout;
+    let currentSearch = null;
+
+    // Initialize
+    $('#searchQuery').focus();
+
+    // Search form submission
+    $('#searchForm').on('submit', function(e) {
+        e.preventDefault();
+        performSearch();
+    });
+
+    // Clear button
+    $('#clearBtn').on('click', function() {
+        $('#searchQuery').val('');
+        $('#titleId').val('');
+        $('#searchType').val('base');
+        $('#resultsSection').hide();
+        $('#searchQuery').focus();
+    });
+
+    // Title ID formatting
+    $('#titleId').on('input', function() {
+        let value = $(this).val().replace(/[^0-9A-Fa-f]/g, '').toUpperCase();
+        if (value.length > 16) {
+            value = value.substr(0, 16);
+        }
+        $(this).val(value);
+    });
+
+    function performSearch() {
+        const query = $('#searchQuery').val().trim();
+        const searchType = $('#searchType').val();
+        const titleId = $('#titleId').val().trim();
+
+        if (!query) {
+            return;
+        }
+
+        // Cancel any pending search
+        if (searchTimeout) {
+            clearTimeout(searchTimeout);
+        }
+
+        // Show loading state
+        $('#resultsSection').show();
+        $('#loadingSpinner').show();
+        $('#errorAlert').hide();
+        $('#resultsTable').hide();
+        $('#noResults').hide();
+        $('#searchBtn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Searching...');
+
+        // Build search query based on type
+        let searchQuery = query;
+        if (searchType === 'update') {
+            searchQuery += ' update';
+        } else if (searchType === 'dlc') {
+            searchQuery += ' dlc';
+        }
+
+        // Perform search
+        currentSearch = $.ajax({
+            url: '/api/jackett/search',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                query: searchQuery,
+                type: searchType,
+                title_id: titleId
+            }),
+            success: function(response) {
+                displayResults(response.results, titleId);
+                $('#resultCount').text(`Found ${response.results.length} results`);
+            },
+            error: function(xhr) {
+                let errorMsg = 'Search failed. ';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg += xhr.responseJSON.message;
+                } else {
+                    errorMsg += 'Please check your Jackett configuration.';
+                }
+                $('#errorAlert').text(errorMsg).show();
+            },
+            complete: function() {
+                $('#loadingSpinner').hide();
+                $('#searchBtn').prop('disabled', false).html('<i class="bi bi-search"></i> Search');
+                currentSearch = null;
+            }
+        });
+    }
+
+    function displayResults(results, titleId) {
+        const tbody = $('#resultsBody');
+        tbody.empty();
+
+        if (results.length === 0) {
+            $('#noResults').show();
+            return;
+        }
+
+        results.forEach(function(result) {
+            const hasTitleId = result.has_title_id;
+            const titleClass = hasTitleId ? 'fw-bold' : '';
+            const titleIcon = hasTitleId ? '<i class="bi bi-star-fill text-warning me-1"></i>' : '';
+            
+            const row = $('<tr>');
+            row.append(`<td class="${titleClass}" title="${result.title}">${titleIcon}${escapeHtml(result.title)}</td>`);
+            row.append(`<td>${result.size_formatted}</td>`);
+            row.append(`<td class="text-success">${result.seeders}</td>`);
+            row.append(`<td class="text-danger">${result.leechers}</td>`);
+            row.append(`<td>${escapeHtml(result.tracker)}</td>`);
+            
+            const downloadBtn = $('<button>')
+                .addClass('btn btn-sm btn-primary')
+                .html('<i class="bi bi-download"></i> Download')
+                .on('click', function() {
+                    downloadTorrent(result);
+                });
+            
+            row.append($('<td>').append(downloadBtn));
+            tbody.append(row);
+        });
+
+        $('#resultsTable').show();
+    }
+
+    function downloadTorrent(torrent) {
+        const modal = new bootstrap.Modal($('#downloadModal')[0]);
+        const modalContent = $('#downloadModalContent');
+        
+        modalContent.html('<div class="text-center"><div class="spinner-border"></div><p class="mt-2">Adding to download queue...</p></div>');
+        modal.show();
+
+        $.ajax({
+            url: '/api/automation/download',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                magnet_link: torrent.magnet_link || '',
+                torrent_url: torrent.torrent_link || ''
+            }),
+            success: function(response) {
+                modalContent.html(`
+                    <div class="alert alert-success">
+                        <i class="bi bi-check-circle"></i> ${response.message}
+                    </div>
+                    <p>The torrent has been added to your download queue.</p>
+                `);
+            },
+            error: function(xhr) {
+                let errorMsg = 'Failed to add torrent. ';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg += xhr.responseJSON.message;
+                }
+                modalContent.html(`
+                    <div class="alert alert-danger">
+                        <i class="bi bi-exclamation-circle"></i> ${errorMsg}
+                    </div>
+                `);
+            }
+        });
+    }
+
+    function escapeHtml(text) {
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, m => map[m]);
+    }
+});
+</script>
+
+{% endblock %}

@@ -209,6 +209,30 @@ def missing():
     )
 
 
+@app.route('/search')
+@access_required('shop')
+def search():
+    """Display game search page"""
+    
+    return render_template(
+        'search.html',
+        title='Search',
+        admin_account_created=admin_account_created()
+    )
+
+
+@app.route('/downloads')
+@access_required('admin')
+def downloads():
+    """Display active downloads page"""
+    
+    return render_template(
+        'downloads.html',
+        title='Downloads',
+        admin_account_created=admin_account_created()
+    )
+
+
 @app.route('/settings')
 @access_required('admin')
 def settings_page():
